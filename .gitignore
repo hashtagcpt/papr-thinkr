@@ -1,0 +1,17 @@
+# Runtime project data (user workspaces, not source code)
+projects/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Logs
+*.log
+
+# OS/editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

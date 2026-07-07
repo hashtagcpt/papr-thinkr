@@ -1,0 +1,11 @@
+# papr-thinkr has no third-party Python dependencies -- it only uses the
+# standard library (http.server, urllib, subprocess, json, pathlib, etc).
+#
+# External, non-Python requirements (not installable via pip) are:
+#   - Ollama running locally: https://ollama.com
+#   - pandoc on PATH:          https://pandoc.org/installing.html
+#   - pdftotext on PATH:       part of poppler (poppler-utils on Linux,
+#                              `brew install poppler` on macOS, bundled with
+#                              a TeX Live install or poppler-windows on Windows)
+#
+# See README.md for full setup instructions.

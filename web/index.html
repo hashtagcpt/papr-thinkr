@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>papr-thinkr</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<header id="topbar">
+  <div class="brand">📝 papr-thinkr <span class="tag">local co-author</span></div>
+  <div class="topbar-right">
+    <select id="projectSelect"><option value="">Select a project…</option></select>
+    <button id="newProjectBtn">+ New project</button>
+    <span id="ollamaStatus" class="status-pill">checking…</span>
+  </div>
+</header>
+
+<main id="app">
+  <div id="emptyState" class="empty-state">
+    <p>No project selected. Create a new project pointing at a manuscript file and one or more reviewer-comment files, or pick an existing one above.</p>
+  </div>
+
+  <div id="projectView" class="project-view hidden">
+    <section id="commentsPane" class="pane">
+      <div class="pane-header">
+        <h2>Reviewer Comments</h2>
+        <div class="pane-actions">
+          <button id="gapAnalysisBtn" title="Ask the model to assess how well the manuscript currently addresses each comment">Run gap analysis</button>
+          <button id="exportLetterBtn" title="Assemble a point-by-point response letter from current statuses">Export response letter</button>
+        </div>
+      </div>
+      <div id="commentsList" class="comments-list"></div>
+    </section>
+
+    <section id="detailPane" class="pane">
+      <div id="detailEmpty" class="empty-state small">Select a comment on the left to see details, propose an edit, or draft a reviewer response.</div>
+      <div id="detailContent" class="hidden">
+        <div class="detail-header">
+          <span id="detailReviewer" class="badge"></span>
+          <span id="detailSeverity" class="badge"></span>
+          <select id="detailStatus">
+            <option value="unaddressed">unaddressed</option>
+            <option value="partially_addressed">partially addressed</option>
+            <option value="addressed">addressed</option>
+            <option value="unclear">unclear</option>
+            <option value="wontfix">won't fix</option>
+          </select>
+        </div>
+        <p id="detailText" class="detail-text"></p>
+        <div id="detailGap" class="gap-block hidden">
+          <div><strong>Assessed evidence:</strong> <span id="detailEvidence"></span></div>
+          <div><strong>Suggested action:</strong> <span id="detailAction"></span></div>
+        </div>
+
+        <label class="field-label">Author notes</label>
+        <textarea id="detailNotes" rows="2" placeholder="Private notes to yourself about this comment…"></textarea>
+        <button id="saveNotesBtn">Save notes</button>
+
+        <div class="section-divider"></div>
+
+        <div class="detail-actions">
+          <button id="proposePatchBtn">Propose manuscript edit</button>
+          <button id="draftResponseBtn">Draft reviewer response</button>
+          <button id="focusChatBtn">Discuss in chat →</button>
+        </div>
+
+        <div id="patchList" class="patch-list"></div>
+
+        <div id="responseBlock" class="response-block hidden">
+          <label class="field-label">Response to reviewer</label>
+          <textarea id="responseText" rows="4"></textarea>
+          <button id="saveResponseBtn">Save response text</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="chatPane" class="pane">
+      <div class="pane-header">
+        <h2 id="chatTitle">Co-author chat</h2>
+        <button id="unfocusChatBtn" class="hidden" title="Return to whole-project chat">Whole-project chat</button>
+      </div>
+      <div id="chatMessages" class="chat-messages"></div>
+      <div class="chat-input-row">
+        <textarea id="chatInput" rows="2" placeholder="Ask your co-author anything about the manuscript or comments…"></textarea>
+        <button id="chatSendBtn">Send</button>
+      </div>
+    </section>
+  </div>
+</main>
+
+<div id="newProjectModal" class="modal hidden">
+  <div class="modal-box">
+    <h2>New project</h2>
+    <label class="field-label">Project name</label>
+    <input id="npName" placeholder="e.g. noise_chicks IOVS revision" />
+
+    <label class="field-label">Manuscript title (optional)</label>
+    <input id="npTitle" placeholder="e.g. Altering emmetropization with dynamic visual noise" />
+
+    <label class="field-label">Journal (optional, shapes the co-author's tone)</label>
+    <input id="npJournal" placeholder="e.g. IOVS" />
+
+    <label class="field-label">Manuscript file (.tex, .docx, .md, .txt)</label>
+    <div class="file-row">
+      <input id="npManuscriptPath" placeholder="Full path to manuscript file" />
+      <button data-browse-target="npManuscriptPath" class="browseBtn">Browse…</button>
+    </div>
+
+    <label class="field-label">Reviewer comment file(s) — one path per line, optionally "label: path"</label>
+    <textarea id="npCommentPaths" rows="3" placeholder="Reviewer letter: D:\path\to\comments.docx&#10;D:\path\to\another_review.pdf"></textarea>
+    <div class="file-row">
+      <button data-browse-target="npCommentPaths" class="browseBtn">Browse to add a file…</button>
+    </div>
+
+    <label class="field-label">Existing gap/revision plan file (optional)</label>
+    <div class="file-row">
+      <input id="npGapPlanPath" placeholder="Full path to an existing plan doc, if you have one" />
+      <button data-browse-target="npGapPlanPath" class="browseBtn">Browse…</button>
+    </div>
+
+    <div class="modal-actions">
+      <button id="npCancelBtn">Cancel</button>
+      <button id="npCreateBtn" class="primary">Create project</button>
+    </div>
+    <div id="npStatus" class="np-status"></div>
+  </div>
+</div>
+
+<div id="browseModal" class="modal hidden">
+  <div class="modal-box">
+    <h2>Browse files</h2>
+    <div id="browsePath" class="browse-path"></div>
+    <div id="browseList" class="browse-list"></div>
+    <div class="modal-actions">
+      <button id="browseCancelBtn">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="letterModal" class="modal hidden">
+  <div class="modal-box wide">
+    <h2>Response letter (draft)</h2>
+    <textarea id="letterText" rows="24"></textarea>
+    <div class="modal-actions">
+      <button id="letterCloseBtn">Close</button>
+      <button id="letterCopyBtn" class="primary">Copy to clipboard</button>
+    </div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
