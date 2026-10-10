@@ -1,0 +1,23 @@
+{
+  "defaults": {
+    "backend": "ollama",
+    "depth": "standard",
+    "out_dir": "papr-reviews"
+  },
+  "papers": [
+    {
+      "name": "demo paper (from its folder)",
+      "dir": "demo-paper",
+      "journal": "IOVS",
+      "field": "myopia / visual neuroscience"
+    },
+    {
+      "name": "demo paper as a first draft, on Codex",
+      "manuscript": "demo-paper/manuscript/main.tex",
+      "code": ["demo-paper/code"],
+      "data": ["demo-paper/data"],
+      "backend": "codex",
+      "depth": "quick"
+    }
+  ]
+}

@@ -1,11 +1,19 @@
 # papr-thinkr has no third-party Python dependencies -- it only uses the
-# standard library (http.server, urllib, subprocess, json, pathlib, etc).
+# standard library (http.server, urllib, subprocess, json, zipfile, csv, ...).
 #
-# External, non-Python requirements (not installable via pip) are:
-#   - Ollama running locally: https://ollama.com
-#   - pandoc on PATH:          https://pandoc.org/installing.html
-#   - pdftotext on PATH:       part of poppler (poppler-utils on Linux,
-#                              `brew install poppler` on macOS, bundled with
-#                              a TeX Live install or poppler-windows on Windows)
+# External, non-Python requirements (not installable via pip):
+#   - pandoc on PATH:     https://pandoc.org/installing.html
+#                         (reads .docx/.odt/.rtf; writes the .docx report --
+#                          a built-in fallback writer is used if it's missing)
+#   - pdftotext on PATH:  part of poppler (poppler-utils on Linux,
+#                         `brew install poppler` on macOS, bundled with Git for
+#                         Windows / TeX Live, or poppler-windows on Windows)
 #
-# See README.md for full setup instructions.
+# Plus at least one LLM backend:
+#   - Ollama (local):          https://ollama.com  then e.g. `ollama pull qwen3.6:27b`
+#   - Claude Code CLI:         https://claude.com/claude-code  (log in once)
+#   - OpenAI Codex CLI:        npm install -g @openai/codex    (log in once)
+#   - Google Gemini CLI:       npm install -g @google/gemini-cli (log in once)
+#   - or an API key:           ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY
+#
+# Run `python papr.py backends` to see what's usable. See README.md.

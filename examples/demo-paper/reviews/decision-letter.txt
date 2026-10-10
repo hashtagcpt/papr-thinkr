@@ -1,0 +1,31 @@
+Dear Dr. Author,
+
+Your manuscript "Daily blue-light exposure slows lens-induced myopia in chicks" (IOVS-26-01234) has now been reviewed. Both reviewers see merit in the question but raise substantial concerns. Please pay particular attention to Reviewer 2's statistical comments. Please submit your revision within 60 days via the online portal.
+
+Reviewer #1 (Comments for the Author (Required)):
+
+1. Lines 38-39: the authors claim that the choroid thickened, but no method for measuring choroidal thickness is given anywhere in the manuscript.
+
+2. The authors should situate the putative effect within the emmetropization signal integration window vis-a-vis the temporal dynamics of defocus; otherwise the ontological status of the effect (scalar gain modulation versus set-point shift) remains unclear.
+
+3. The sample size is small and no power analysis is reported. How was n = 12 per group chosen?
+
+4. The blue light condition differs from the control in both wavelength and intensity (500 lux vs unspecified fluorescent). The authors cannot attribute the effect to wavelength. A red-light group would show specificity.
+
+5. The Discussion should be expanded to cover the dopaminergic mechanism in much more depth, including recent work on D1/D2 receptor pathways.
+
+Reviewer #2 (Comments for the Author (Required)):
+
+It is frankly baffling that the authors thought treating both eyes of each animal as independent observations would pass review. This is elementary pseudo-replication and invalidates every p-value in the paper. Did anyone with statistical training look at this?
+
+Fig. 2: the error bars are not defined.
+
+Line 6 and line 38: "p = 0.000" is not a valid p-value.
+
+Line 24: retinoscopy in chicks is unreliable; please use an autorefractor or justify the choice.
+
+Lines 33-34: state which software was used and report test statistics and degrees of freedom, not just p-values.
+
+The manuscript is too long; please shorten the Discussion considerably.
+
+Minor: the reference list has only two entries, and reference 1 does not appear to support the dopamine claim.

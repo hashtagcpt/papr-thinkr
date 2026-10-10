@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>papr-thinkr</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<header id="topbar">
+  <div class="brand">📝 papr-thinkr <span class="tag">critical reviewer &amp; revision co-author</span></div>
+  <div class="topbar-right">
+    <select id="projectSelect" aria-label="Project"><option value="">Select a project…</option></select>
+    <button id="newProjectBtn">+ New project</button>
+    <button id="editProjectBtn" class="hidden" title="Project settings: files, model, review depth">⚙ Project</button>
+    <button id="backendPill" class="status-pill" title="Available LLM backends">checking…</button>
+  </div>
+</header>
+
+<div id="jobBar" class="job-bar hidden">
+  <div class="job-row">
+    <strong id="jobTitle">Working…</strong>
+    <div class="progress"><div id="jobProgress" class="progress-fill"></div></div>
+    <span id="jobLast" class="job-last"></span>
+    <button id="jobLogToggle" class="small">Log</button>
+    <button id="jobCancelBtn" class="small">Cancel</button>
+    <button id="jobCloseBtn" class="small hidden">✕</button>
+  </div>
+  <pre id="jobLog" class="job-log hidden"></pre>
+</div>
+
+<main id="app">
+  <div id="emptyState" class="empty-state">
+    <h2>Review a manuscript</h2>
+    <p>Create a project pointing at your manuscript (.tex, .docx, .md, .txt or .pdf). Optionally add the
+       reviewers' comments, and the analysis code and data behind the paper.</p>
+    <ul class="intro-list">
+      <li><strong>No reviewer comments?</strong> papr-thinkr reviews your first draft like a panel of harsh referees.</li>
+      <li><strong>Have reviews?</strong> Every comment is triaged: is the reviewer right, how much work is it (with a
+          confidence), and a drafted rebuttal when pushback is warranted, plus an independent critique of what they missed.</li>
+      <li>Results become a Word report, trackable items, proposed edits and a response letter.</li>
+    </ul>
+    <div id="introBackends" class="intro-backends"></div>
+  </div>
+
+  <div id="projectView" class="project-view hidden">
+    <section id="commentsPane" class="pane">
+      <div class="pane-header">
+        <h2 id="itemsTitle">Items</h2>
+        <div class="pane-actions">
+          <button id="runReviewBtn" class="primary" title="Run the full review (critique and/or triage of reviewer comments)">▶ Run review</button>
+          <button id="gapAnalysisBtn" title="Re-check every comment against the current manuscript text">Gap analysis</button>
+        </div>
+      </div>
+      <div class="pane-actions wrap">
+        <a id="reportDocxLink" class="button-link" href="#" download>Report (.docx)</a>
+        <button id="exportLetterBtn" title="Point-by-point response letter">Response letter</button>
+        <button id="overviewBtn" title="Show the overall assessment">Overview</button>
+      </div>
+      <div class="filter-row">
+        <select id="filterSelect" aria-label="Show">
+          <option value="all">All items</option>
+          <option value="reviewer">Reviewer comments</option>
+          <option value="attention">Misread / unclear / harsh</option>
+          <option value="ai">AI critique</option>
+          <option value="figures">Figures</option>
+          <option value="open">Still open</option>
+        </select>
+        <select id="sortSelect" aria-label="Sort">
+          <option value="doc">Document order</option>
+          <option value="severity">Severity</option>
+          <option value="effort">Effort (most first)</option>
+          <option value="confidence">Confidence</option>
+          <option value="stance">Rebuttals first</option>
+        </select>
+      </div>
+      <div class="filter-row">
+        <input id="searchInput" class="search" placeholder="Search items…" />
+        <label class="calm-toggle" title="Show reviewer comments in plain, calm words (original wording one click away)"><input type="checkbox" id="calmToggle" /> calm view</label>
+      </div>
+      <div id="commentsList" class="comments-list"></div>
+    </section>
+
+    <section id="detailPane" class="pane">
+      <div id="overview" class="overview"></div>
+      <div id="detailContent" class="hidden">
+        <div class="detail-header">
+          <span id="detailReviewer" class="badge"></span>
+          <span id="detailSeverity" class="badge"></span>
+          <select id="detailStatus" aria-label="Status">
+            <option value="unaddressed">unaddressed</option>
+            <option value="partially_addressed">partially addressed</option>
+            <option value="addressed">addressed</option>
+            <option value="unclear">unclear</option>
+            <option value="wontfix">won't fix</option>
+          </select>
+          <span id="detailId" class="muted small-text"></span>
+        </div>
+        <p id="detailText" class="detail-text"></p>
+        <button id="toggleOriginalBtn" class="small hidden">Show original wording</button>
+
+        <div id="refsBlock" class="refs-block hidden"></div>
+        <div id="decodedBlock" class="info-block decoded hidden"></div>
+        <div id="figureBlock" class="info-block hidden"></div>
+        <div id="critiqueBlock" class="info-block hidden"></div>
+        <div id="triageBlock" class="info-block hidden"></div>
+
+        <div id="ventBlock" class="vent-block hidden">
+          <label class="field-label" for="ventText">Your honest reaction — private, say what you really think</label>
+          <textarea id="ventText" rows="3" placeholder="e.g. They clearly didn't read the Methods — the OCT protocol is right there on line 28!"></textarea>
+          <button id="ventBtn">Turn this into a professional reply</button>
+          <div id="ventResult" class="hidden"></div>
+        </div>
+
+        <div id="detailGap" class="gap-block hidden">
+          <div><strong>Gap analysis evidence:</strong> <span id="detailEvidence"></span></div>
+          <div><strong>Still to do:</strong> <span id="detailAction"></span></div>
+        </div>
+
+        <label class="field-label" for="detailNotes">Author notes</label>
+        <textarea id="detailNotes" rows="2" placeholder="Private notes to yourself about this item…"></textarea>
+        <button id="saveNotesBtn">Save notes</button>
+
+        <div class="section-divider"></div>
+
+        <div class="detail-actions">
+          <button id="proposePatchBtn">Propose manuscript edit</button>
+          <button id="draftResponseBtn">Draft reviewer response</button>
+          <button id="focusChatBtn">Discuss in chat →</button>
+        </div>
+        <div id="editableNote" class="muted small-text hidden">This manuscript format can't be edited in place: proposed edits are shown for you to apply by hand.</div>
+
+        <div id="patchList" class="patch-list"></div>
+
+        <div id="responseBlock" class="response-block">
+          <label class="field-label" for="responseText">Response to reviewer</label>
+          <textarea id="responseText" rows="5" placeholder="Draft it with the button above, or write your own."></textarea>
+          <button id="saveResponseBtn">Save response text</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="chatPane" class="pane">
+      <div class="pane-header">
+        <h2 id="chatTitle">Co-author chat</h2>
+        <button id="unfocusChatBtn" class="hidden small" title="Return to whole-project chat">Whole-project chat</button>
+      </div>
+      <div id="chatMessages" class="chat-messages"></div>
+      <div class="chat-input-row">
+        <textarea id="chatInput" rows="2" placeholder="Ask your co-author anything about the manuscript or comments…"></textarea>
+        <button id="chatSendBtn">Send</button>
+      </div>
+    </section>
+  </div>
+</main>
+
+<div id="projectModal" class="modal hidden">
+  <div class="modal-box wide">
+    <h2 id="pmTitle">New project</h2>
+    <div class="discover-row">
+      <button id="pmDiscoverBtn" class="primary">📁 Fill everything from a paper folder…</button>
+      <span class="muted small-text">Finds the manuscript, reviews, line-numbered PDF, code, data and figures. Check the result below.</span>
+    </div>
+    <div class="grid2">
+      <div>
+        <label class="field-label" for="pmName">Project name</label>
+        <input id="pmName" placeholder="e.g. noise-chicks IOVS revision" />
+      </div>
+      <div>
+        <label class="field-label" for="pmJournal">Target journal (optional)</label>
+        <input id="pmJournal" placeholder="e.g. IOVS" />
+      </div>
+    </div>
+    <label class="field-label" for="pmTitleInput">Manuscript title (optional)</label>
+    <input id="pmTitleInput" placeholder="e.g. Altering emmetropization with dynamic visual noise" />
+    <label class="field-label" for="pmField">Research field (optional, sharpens the reviewers)</label>
+    <input id="pmField" placeholder="e.g. visual neuroscience / myopia" />
+
+    <label class="field-label" for="pmManuscript">Manuscript file (.tex, .docx, .md, .txt, .pdf)</label>
+    <div class="file-row">
+      <input id="pmManuscript" placeholder="Full path to manuscript file" />
+      <button data-browse-target="pmManuscript" class="browseBtn">Browse…</button>
+    </div>
+
+    <label class="field-label" for="pmComments">Reviewer comment file(s) — optional. One per line, optionally "label: path". <em>Leave empty to review a first draft.</em></label>
+    <textarea id="pmComments" rows="2" placeholder="Decision letter: D:\path\to\comments.docx"></textarea>
+    <div class="file-row"><button data-browse-target="pmComments" class="browseBtn">Browse to add a file…</button></div>
+
+    <div class="grid2">
+      <div>
+        <label class="field-label" for="pmSubmitted">Submitted PDF with line numbers (optional — resolves "line 123")</label>
+        <div class="file-row">
+          <input id="pmSubmitted" placeholder="The PDF the reviewers read" />
+          <button data-browse-target="pmSubmitted" class="browseBtn">Browse…</button>
+        </div>
+      </div>
+      <div>
+        <label class="field-label" for="pmFigures">Figure files folder (optional — if not embedded)</label>
+        <div class="file-row">
+          <input id="pmFigures" placeholder="Folder with Figure1.pdf, Figure2.tif…" />
+          <button data-browse-target="pmFigures" data-browse-dirs="1" class="browseBtn">Browse…</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div>
+        <label class="field-label" for="pmCode">Analysis code — files or folders (optional)</label>
+        <textarea id="pmCode" rows="2" placeholder="D:\paper\analysis"></textarea>
+        <button data-browse-target="pmCode" data-browse-dirs="1" class="browseBtn">Browse…</button>
+      </div>
+      <div>
+        <label class="field-label" for="pmData">Data — files or folders (optional)</label>
+        <textarea id="pmData" rows="2" placeholder="D:\paper\data"></textarea>
+        <button data-browse-target="pmData" data-browse-dirs="1" class="browseBtn">Browse…</button>
+      </div>
+    </div>
+
+    <label class="field-label" for="pmGapPlan">Existing revision-plan notes (optional)</label>
+    <div class="file-row">
+      <input id="pmGapPlan" placeholder="Path to a plan you've already written" />
+      <button data-browse-target="pmGapPlan" class="browseBtn">Browse…</button>
+    </div>
+
+    <div class="section-divider"></div>
+    <div class="grid3">
+      <div>
+        <label class="field-label" for="pmBackend">Model backend</label>
+        <select id="pmBackend"></select>
+      </div>
+      <div>
+        <label class="field-label" for="pmModel">Model (blank = default)</label>
+        <input id="pmModel" list="pmModelList" placeholder="default" />
+        <datalist id="pmModelList"></datalist>
+      </div>
+      <div>
+        <label class="field-label" for="pmThink">Model "thinking"</label>
+        <select id="pmThink">
+          <option value="">model default</option>
+          <option value="on">on (slower, deeper)</option>
+          <option value="off">off (faster)</option>
+        </select>
+      </div>
+    </div>
+    <div class="grid3">
+      <div>
+        <label class="field-label" for="pmDepth">Review depth</label>
+        <select id="pmDepth">
+          <option value="thorough">thorough — section-by-section + 5 referees</option>
+          <option value="standard">standard — section-by-section + 1 referee</option>
+          <option value="quick">quick — one whole-paper pass</option>
+        </select>
+      </div>
+      <div class="checkbox-cell">
+        <label><input type="checkbox" id="pmIndependent" checked /> Independent critique even when reviews exist</label>
+      </div>
+      <div class="checkbox-cell" id="pmStartWrap">
+        <label><input type="checkbox" id="pmStart" checked /> Start the review right away</label>
+      </div>
+    </div>
+    <div id="pmBackendNote" class="muted small-text"></div>
+
+    <div class="modal-actions">
+      <button id="pmDeleteBtn" class="danger hidden">Delete project</button>
+      <span class="spacer"></span>
+      <button id="pmCancelBtn">Cancel</button>
+      <button id="pmSaveBtn" class="primary">Create project</button>
+    </div>
+    <div id="pmStatus" class="np-status"></div>
+  </div>
+</div>
+
+<div id="browseModal" class="modal hidden">
+  <div class="modal-box">
+    <h2>Browse</h2>
+    <div class="browse-path-row">
+      <div id="browsePath" class="browse-path"></div>
+      <button id="browseHomeBtn" class="small">Home</button>
+    </div>
+    <div id="browseList" class="browse-list"></div>
+    <div class="modal-actions">
+      <button id="browseUseDirBtn" class="hidden">Use this folder</button>
+      <span class="spacer"></span>
+      <button id="browseCancelBtn">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="letterModal" class="modal hidden">
+  <div class="modal-box wide">
+    <h2>Response letter (draft)</h2>
+    <textarea id="letterText" rows="24"></textarea>
+    <div class="modal-actions">
+      <a id="letterDocxLink" class="button-link" href="#" download>Download .docx</a>
+      <span class="spacer"></span>
+      <button id="letterCloseBtn">Close</button>
+      <button id="letterCopyBtn" class="primary">Copy to clipboard</button>
+    </div>
+  </div>
+</div>
+
+<div id="backendsModal" class="modal hidden">
+  <div class="modal-box wide">
+    <h2>LLM backends</h2>
+    <p class="muted">Local models never send your manuscript anywhere. Cloud backends send the manuscript text (and any
+      code/data summaries) to that provider. The CLI backends use your existing login for that tool and are run with
+      tools disabled.</p>
+    <div id="backendsList"></div>
+    <h3 class="keys-title">API keys</h3>
+    <p class="muted small-text">Only needed for the <code>*-api</code> backends and the Gemini CLI. Stored on this computer
+      outside the repository; never shown again in full. See docs/api-keys-and-logins.md.</p>
+    <div id="keysList"></div>
+    <p id="keysWhere" class="muted small-text"></p>
+    <label class="field-label" for="defaultBackend">Server default (used by projects that don't set one)</label>
+    <div class="file-row">
+      <select id="defaultBackend"></select>
+      <input id="defaultModel" list="defaultModelList" placeholder="model (blank = default)" />
+      <datalist id="defaultModelList"></datalist>
+      <button id="saveDefaultBackendBtn">Save</button>
+    </div>
+    <div class="modal-actions">
+      <button id="refreshBackendsBtn">Re-detect</button>
+      <span class="spacer"></span>
+      <button id="backendsCloseBtn" class="primary">Close</button>
+    </div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
