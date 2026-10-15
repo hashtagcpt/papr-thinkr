@@ -8,6 +8,7 @@ import math
 import struct
 import unittest
 import zipfile
+from pathlib import Path
 
 from support import DEMO, HAS_PDFTOTEXT, FakeLLM, TempProjects
 
@@ -238,7 +239,7 @@ class TestDiscover(TempProjects):
         self.assertTrue(f["manuscript"].endswith("main.tex"))
         self.assertEqual([p.split("\\")[-1].split("/")[-1] for p in f["reviews"]], ["decision-letter.txt"])
         self.assertTrue(f["code_paths"][0].endswith("code"))
-        self.assertTrue(f["data_paths"][0].endswith("data"))
+        self.assertEqual({Path(p).name for p in f["data_paths"]}, {"chick_biometry.csv", "choroid_oct.mat"})
         if HAS_PDFTOTEXT:
             self.assertTrue(f["submitted_pdf"].endswith("submitted.pdf"))
 
@@ -247,7 +248,12 @@ class TestDiscover(TempProjects):
         (root / "analysis").mkdir(parents=True)
         for name in ("Smith_manuscript_v3.docx", "Reviewer comments R1.docx", "Response to reviewers.docx"):
             with zipfile.ZipFile(root / name, "w") as z:
-                z.writestr("word/document.xml", "<x/>")
+                # Use actual document text: discovery now checks content, not only filenames.
+                body = ("Reviewer 1: Please clarify the sampling procedure." if name.startswith("Reviewer") else
+                        "We thank the reviewer for their comments." if name.startswith("Response") else
+                        "<w:p><w:r><w:t>Introduction</w:t></w:r></w:p>" +
+                        "<w:p><w:r><w:t>" + "The scientific manuscript describes methods and results. " * 150 + "</w:t></w:r></w:p>")
+                z.writestr("word/document.xml", f'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">{body}</w:document>')
         (root / "analysis" / "fit.R").write_text("x <- 1\n", encoding="utf-8")
         (root / "analysis" / "raw.mat").write_bytes(b"MATLAB 5.0")
         f = discover(root)
