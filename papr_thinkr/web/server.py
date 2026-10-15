@@ -179,7 +179,7 @@ def _annotate_refs(proj: Project, say=None) -> None:
 
 def _job_review(job, slug: str, options: dict) -> dict:
     proj = Project.load(slug)
-    llm = get_llm(proj)
+    llm = get_llm(proj, override=options.get("llm"))
     job.say(f"Using {llm.display_name}")
     result = run_review(llm, proj, progress=job.say, depth=options.get("depth"),
                                independent=options.get("independent"), force=options.get("force", False))
@@ -353,6 +353,9 @@ def h_create_project(handler, params, body):
     if missing:
         raise ApiError("Reviewer comment file(s) not found: " + "; ".join(missing))
     code_paths, data_paths = _paths(body.get("code_paths")), _paths(body.get("data_paths"))
+    standards_paths = _paths(body.get("standards_paths"))
+    if any(not Path(p).is_file() for p in standards_paths):
+        raise ApiError("Field standards must be existing document files")
     missing = [p for p in code_paths + data_paths if not Path(p).exists()]
     if missing:
         raise ApiError("Code/data path(s) not found: " + "; ".join(missing))
@@ -368,7 +371,7 @@ def h_create_project(handler, params, body):
         name=name, journal=body.get("journal", ""), manuscript_files=manuscript_files,
         comment_sources=sources, gap_plan_file=(body.get("gap_plan_file") or None),
         title=body.get("title", ""), field=body.get("field", ""), code_paths=code_paths,
-        data_paths=data_paths, llm=llm_cfg or {"backend": None, "model": None, "think": None},
+        data_paths=data_paths, standards_paths=standards_paths, llm=llm_cfg or {"backend": None, "model": None, "think": None},
         review=review_cfg, submitted_pdf=submitted_pdf, figures_dir=figures_dir)
     warnings = []
     if proj.config.get("gap_plan_file"):
@@ -420,10 +423,10 @@ def h_update_project(handler, params, body):
             if not Path(mp).is_file():
                 raise ApiError(f"Manuscript file not found: {mp}")
             cfg["manuscript_files"] = [{"path": mp, "label": Path(mp).name}]
-        for k in ("code_paths", "data_paths"):
+        for k in ("code_paths", "data_paths", "standards_paths"):
             if k in body:
                 vals = _paths(body[k])
-                missing = [p for p in vals if not Path(p).exists()]
+                missing = [p for p in vals if not (Path(p).is_file() if k == "standards_paths" else Path(p).exists())]
                 if missing:
                     raise ApiError(f"Path(s) not found: {'; '.join(missing)}")
                 cfg[k] = vals
@@ -500,9 +503,9 @@ def h_start_review(handler, params, body):
     proj = Project.load(params["slug"])
     opts = {"depth": body.get("depth") if body.get("depth") in DEPTHS else None,
             "independent": body.get("independent") if body.get("independent") in (True, False) else None,
-            "force": body.get("force") is True}
+            "force": body.get("force") is True, "llm": _clean_llm(body.get("llm"))}
     try:
-        get_llm(proj)
+        get_llm(proj, override=opts["llm"])
     except LLMError as e:
         raise ApiError(str(e))
     job = JOBS.start("review", proj.slug, "Full review", lambda j: _job_review(j, proj.slug, opts))

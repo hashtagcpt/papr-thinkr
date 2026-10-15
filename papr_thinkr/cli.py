@@ -82,6 +82,7 @@ def run_one(spec: dict, base_dir: Path | None = None) -> dict:
     if spec.get("project") and not spec.get("manuscript") and not spec.get("dir"):
         existing = Project.load(spec["project"])
         spec = dict(spec, manuscript=str(existing.manuscript_path()))
+    existing = Project.load(spec["project"]) if spec.get("project") else None
     if spec.get("dir"):
         found = discover(_abs(spec["dir"], base_dir))
         _log(f"Found in {found['folder']}:")
@@ -102,6 +103,9 @@ def run_one(spec: dict, base_dir: Path | None = None) -> dict:
     reviews = [_abs(p, base_dir) for p in spec.get("reviews") or []]
     code = [_abs(p, base_dir) for p in spec.get("code") or []]
     data = [_abs(p, base_dir) for p in spec.get("data") or []]
+    standards = [_abs(p, base_dir) for p in spec.get("standards") or []]
+    if any(not Path(p).is_file() for p in standards):
+        raise SystemExit("Field standards must be existing document files")
     for p in reviews:
         if not Path(p).is_file():
             raise SystemExit(f"Review file not found: {p}")
@@ -113,9 +117,13 @@ def run_one(spec: dict, base_dir: Path | None = None) -> dict:
     if submitted_pdf and not Path(submitted_pdf).is_file():
         raise SystemExit(f"Submitted PDF not found: {submitted_pdf}")
 
-    backend = canonical_backend(spec.get("backend") or os.environ.get("PAPR_BACKEND") or "ollama")
+    saved_llm = (existing.config.get("llm") or {}) if existing else {}
+    backend = canonical_backend(spec.get("backend") or saved_llm.get("backend") or os.environ.get("PAPR_BACKEND") or "ollama")
     think = {"on": True, "off": False, True: True, False: False}.get(spec.get("think"))
-    llm_cfg = {"backend": backend, "model": spec.get("model") or None, "think": think}
+    if spec.get("think") is None:
+        think = saved_llm.get("think")
+    same_backend = not spec.get("backend") or canonical_backend(spec["backend"]) == saved_llm.get("backend")
+    llm_cfg = {"backend": backend, "model": spec.get("model") or (saved_llm.get("model") if same_backend else None), "think": think}
     review_cfg = {"depth": spec.get("depth") or "thorough",
                   "independent_review": spec.get("independent", True) is not False, "personas": None}
     sources = [{"path": p, "label": Path(p).name} for p in reviews]
@@ -131,6 +139,8 @@ def run_one(spec: dict, base_dir: Path | None = None) -> dict:
                 proj.config["code_paths"] = code
             if data:
                 proj.config["data_paths"] = data
+            if standards:
+                proj.config["standards_paths"] = standards
             proj.config["llm"] = llm_cfg
             proj.config["review"].update(review_cfg)
             if submitted_pdf:
@@ -147,7 +157,7 @@ def run_one(spec: dict, base_dir: Path | None = None) -> dict:
                               manuscript_files=[{"path": manuscript, "label": Path(manuscript).name}],
                               comment_sources=sources, title=meta["title"], field=meta["field"],
                               code_paths=code, data_paths=data, llm=llm_cfg, review=review_cfg,
-                              submitted_pdf=submitted_pdf, figures_dir=figures_dir)
+                              submitted_pdf=submitted_pdf, figures_dir=figures_dir, standards_paths=standards)
         _log(f"Created project '{proj.slug}' ({proj.dir})")
 
     llm = make_llm(backend, llm_cfg["model"], ollama_host=spec.get("ollama_host"),
@@ -269,6 +279,7 @@ def _spec_from_args(args) -> dict:
         "independent": not args.no_independent, "project": args.project, "out": args.out,
         "json": args.json, "num_ctx": args.num_ctx, "ollama_host": args.ollama_host, "timeout": args.timeout,
         "fresh": args.fresh,
+        "standards": args.standards,
     }
 
 
@@ -434,6 +445,7 @@ def main(argv=None) -> int:
                    help="with --reviews: only triage the reviewers' comments, skip the independent critique")
     p.add_argument("--project", help="re-review an existing project (slug) instead of creating a new one")
     p.add_argument("--fresh", action="store_true", help="ignore saved model calls; otherwise reuse completed matching calls")
+    p.add_argument("--standards", nargs="*", help="field/journal reporting guidelines used as evidence for statistical and methods norms")
     p.add_argument("--out", help="report path (.docx or .md); default: projects/<slug>/reports/")
     p.add_argument("--json", help="also write machine-readable results to this file ('-' for stdout)")
     p.add_argument("--num-ctx", type=int, help="Ollama context window in tokens (default 32768)")

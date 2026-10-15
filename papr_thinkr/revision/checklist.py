@@ -14,11 +14,13 @@ def suggested_actions(comment: dict) -> list[dict]:
     if "revision_actions" in comment:
         return copy.deepcopy(comment["revision_actions"])
     triage, decoded = comment.get("triage") or {}, comment.get("decoded") or {}
-    texts = triage.get("required_changes") or decoded.get("what_would_satisfy") or []
+    detailed = (comment.get("critique") or {}).get("actions") or []
+    texts = [a["action"] for a in detailed] or triage.get("required_changes") or decoded.get("what_would_satisfy") or []
     if not texts:
         texts = [comment.get("suggested_action") or "Address this request or document the reason for rebuttal."]
     return [{"id": digest([comment["id"], i, text])[:12], "text": text, "done": False,
-             "evidence": [], "patch_ids": [], "rationale": "", "response_excerpt": ""}
+             "evidence": [], "patch_ids": [], "rationale": "", "response_excerpt": "",
+             "validation": detailed[i].get("validation", "") if i < len(detailed) else ""}
             for i, text in enumerate(texts)]
 
 

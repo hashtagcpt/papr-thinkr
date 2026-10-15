@@ -17,7 +17,7 @@ from collections import Counter
 from pathlib import Path
 
 from .code_and_data import CODE_EXTS, SKIP_DIRS
-from .documents import read_text_file
+from .documents import flatten_tex, read_text_file
 from .figures import IMAGE_EXTS
 from .line_refs import parse_numbered_pdf
 
@@ -103,6 +103,8 @@ def _tex_profile(p: Path) -> dict:
         return {"words": 0, "headings": 0, "captions": 0}
     if "\\documentclass" not in text[:20000]:
         return {"words": 0, "headings": 0, "captions": 0}
+    # A master file often contains only the preamble and several \input calls.
+    text = flatten_tex(p)
     body = re.sub(r"\\[a-zA-Z]+|[{}$]", " ", text)
     return {"words": len(body.split()), "headings": len(re.findall(r"\\(?:sub)*section\*?\{", text)),
             "captions": text.count("\\caption")}

@@ -59,6 +59,50 @@ def _effort_line(e: dict) -> str:
             f"confidence {_pct(e.get('confidence'))}{extra}")
 
 
+def _scientific_lines(review):
+    science, plan = review.get("scientific_review") or {}, review.get("joint_revision_plan") or {}
+    lines = []
+    if science.get("audits"):
+        lines += ["## Independent scientific audit", "", f"**Field:** {science.get('field') or 'Not specified'}", "",
+                  "These audits assess the science independently of reviewer comments. Field expectations labelled "
+                  "model_inference are suggestions to verify, not established reporting requirements.", ""]
+        for audit in science["audits"]:
+            lines += [f"### {audit['name']}", "", audit.get("summary") or "", ""]
+            if audit.get("error"):
+                lines += [f"**Audit incomplete:** {audit['error']}", ""]
+            if not audit.get("complete_sources"):
+                lines += ["*Some sources are missing or excerpted; absence claims require caution.*", ""]
+            if audit.get("coverage_note"):
+                lines += [audit["coverage_note"], ""]
+            for link in audit.get("links") or []:
+                lines += [f"#### {link['label']} — {link['verdict'].replace('_', ' ')}", "", link["explanation"], ""]
+                for e in link["source_evidence"] + link["target_evidence"] + link["norm_evidence"]:
+                    flag = "verified" if e["verified"] else "UNVERIFIED"
+                    lines += [f"**{e['role']}** — `{e['source_path']}` (line {e.get('line') or '?'}, {flag})", "", _quote(e["quote"]), ""]
+                if link.get("reported_analysis"):
+                    lines += [f"**Reported analysis:** {link['reported_analysis']}", ""]
+                if link.get("independent_unit"):
+                    lines += [f"**Independent unit:** {link['independent_unit']}", ""]
+                lines += [f"**Recommended action:** {link['recommended_action']}", "",
+                          f"**Norm basis:** {link['norm_basis']}", ""]
+                if link.get("assumptions"):
+                    lines += ["**Assumptions to check:** " + "; ".join(link["assumptions"]), ""]
+            if audit.get("finding_ids"):
+                lines += ["**Granular findings:** " + ", ".join(audit["finding_ids"]), ""]
+    if plan.get("actions") or plan.get("summary"):
+        lines += ["## Joint revision plan across reviewers", "", plan.get("summary") or "", "",
+                  "These are proposed changes, not evidence of completion.", ""]
+        for action in plan.get("actions") or []:
+            lines += [f"### {action['title']}", "", "**Requests:** " + ", ".join(action["comment_ids"]), "",
+                      action["approach"], "", f"**Compatibility:** {action['compatibility']}", "", action["tradeoff"], ""]
+            lines.extend("- " + change for change in action["manuscript_changes"])
+            lines += ["", "**Acceptance criteria:** " + "; ".join(action["acceptance_criteria"]), ""]
+            lines.extend(f"**{r['comment_id']} response outline:** {r['response_outline']}\n" for r in action["responses"])
+        if plan.get("uncovered_comment_ids"):
+            lines += ["**Requests not covered by the joint plan:** " + ", ".join(plan["uncovered_comment_ids"]), ""]
+    return lines
+
+
 def build_report_markdown(project) -> str:
     cfg = project.config
     review = project.state.get("review") or {}
@@ -218,6 +262,7 @@ def build_report_markdown(project) -> str:
         L.append("")
 
     # ---------------- Reviewer comments ----------------
+    L.extend(_scientific_lines(review))
     if reviewer_comments:
         L.append("## Reviewer comments: assessment and response plan")
         L.append("")
@@ -380,12 +425,21 @@ def build_report_markdown(project) -> str:
                     L.append("")
                 L.append(f"**Issue.** {cr.get('issue') or c['comment_text']}")
                 L.append("")
+                coverage = cr.get("reviewer_coverage") or {}
+                if coverage:
+                    L += [f"**Relation to supplied reviews (model assessment):** {coverage['relationship'].replace('_', ' ')}. "
+                          f"{coverage.get('explanation') or ''}", ""]
                 if cr.get("rationale"):
                     L.append(f"**Why it matters.** {cr['rationale']}")
                     L.append("")
                 if cr.get("suggestion"):
                     L.append(f"**Suggested fix.** {cr['suggestion']}")
                     L.append("")
+                for action in cr.get("actions") or []:
+                    L += [f"- **Action:** {action['action']} **Validation:** {action['validation']}", ""]
+                for evidence in cr.get("evidence") or []:
+                    L += [f"**Source:** `{evidence['source_path']}` (line {evidence.get('line') or '?'}, "
+                          f"{'verified' if evidence['verified'] else 'UNVERIFIED'})", "", _quote(evidence["quote"]), ""]
                 L.append(f"**Effort.** {_effort_line(cr.get('effort'))}")
                 L.append("")
                 if c.get("author_notes"):

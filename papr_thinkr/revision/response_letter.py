@@ -47,6 +47,11 @@ def draft_response_letter_item(llm: BaseLLM, project: Project, comment: dict) ->
     decoded = _decoded_notes(comment)
     if decoded:
         triage_notes = (triage_notes if t else "") + ("; " if t else "") + decoded
+    for group in comment.get("joint_guidance") or []:
+        outline = next((r["response_outline"] for r in group.get("responses") or [] if r["comment_id"] == comment["id"]), "")
+        triage_notes += (f"\nJoint revision plan for {', '.join(group['comment_ids'])}: {group['approach']}. "
+                         f"Planned changes (not evidence of completion): {'; '.join(group['manuscript_changes'])}. "
+                         f"Response outline for THIS reviewer: {outline}. Do not claim a planned change was made unless applied evidence confirms it.")
 
     prompt = prompts.RESPONSE_LETTER_ITEM.format(
         reviewer=comment["reviewer"], comment_text=comment["comment_text"],

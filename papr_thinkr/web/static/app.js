@@ -158,6 +158,7 @@ async function selectProject(slug) {
   try { localStorage.setItem("papr.slug", slug); } catch (e) { /* ignore */ }
   await refreshProject();
   $("emptyState").classList.add("hidden");
+  configureReviewModel();
   $("projectView").classList.remove("hidden");
   $("reportDocxLink").href = `${P()}/report.docx`;
   $("letterDocxLink").href = `${P()}/response-letter.docx`;
@@ -205,6 +206,9 @@ function visibleComments() {
   if (f === "reviewer") list = list.filter((c) => (c.origin || "reviewer") === "reviewer");
   if (f === "attention") list = list.filter(needsAttention);
   if (f === "ai") list = list.filter((c) => c.origin === "ai-review");
+  if (f === "science") list = list.filter((c) => c.critique && c.critique.scope);
+  if (f === "strengthening") list = list.filter((c) => c.critique && c.critique.issue_kind === "strengthening");
+  if (f === "uncaught") list = list.filter((c) => c.critique?.reviewer_coverage?.relationship === "not_raised");
   if (f === "figures") list = list.filter(isFigureItem);
   if (f === "open") list = list.filter((c) => !["addressed", "wontfix"].includes(c.status));
   const q = state.search.trim().toLowerCase();
@@ -454,6 +458,7 @@ function renderDetail() {
   renderPatchList(c);
   renderRevisionChecklist(c);
   renderResponseAudit(c);
+  renderScientificDetail(c);
 }
 
 function renderRefs(c) {
@@ -841,6 +846,7 @@ function openProjectModal(mode) {
   $("pmComments").value = edit ? cfg.comment_sources.map((s) => `${s.label}: ${s.path}`).join("\n") : "";
   $("pmCode").value = edit ? (cfg.code_paths || []).join("\n") : "";
   $("pmData").value = edit ? (cfg.data_paths || []).join("\n") : "";
+  $("pmStandards").value = edit ? (cfg.standards_paths || []).join("\n") : "";
   $("pmGapPlan").value = edit ? (cfg.gap_plan_file || "") : "";
   $("pmSubmitted").value = edit ? (cfg.submitted_pdf || "") : "";
   $("pmFigures").value = edit ? (cfg.figures_dir || "") : "";
@@ -883,6 +889,7 @@ async function saveProjectModal() {
     comment_sources: parseCommentPaths($("pmComments").value),
     code_paths: $("pmCode").value,
     data_paths: $("pmData").value,
+    standards_paths: $("pmStandards").value,
     submitted_pdf: $("pmSubmitted").value.trim() || null,
     figures_dir: $("pmFigures").value.trim() || null,
     llm: backend ? { backend, model: $("pmModel").value.trim() || null, think: think === undefined ? null : think } : null,
@@ -1040,7 +1047,7 @@ function wireEvents() {
     const what = n ? `triage ${n} reviewer comment(s)${p.config.review.independent_review ? " and run an independent critique" : ""}`
       : "critique this draft";
     if (confirm(`Run a ${p.config.review.depth} review to ${what}? This can take from a few minutes (cloud) to an hour (large local model). You can keep working meanwhile.`)) {
-      startJob(`${P()}/review`, { force: $("freshReviewToggle").checked });
+      startJob(`${P()}/review`, { force: $("freshReviewToggle").checked, llm: reviewModelOptions() });
     }
   });
   $("gapAnalysisBtn").addEventListener("click", () => startJob(`${P()}/gap-analysis`, { force: $("freshReviewToggle").checked }));

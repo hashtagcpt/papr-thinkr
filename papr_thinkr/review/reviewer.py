@@ -39,6 +39,8 @@ from ..revision.provenance import capture_snapshot
 from . import checks
 from .effort import aggregate_effort, as_hours, clamp01, normalize_effort
 from .findings import SEVERITY_RANK, dedupe, merge_group, norm_text, normalize_item, verify_quote
+from .scientific import ScientificReview, SCIENTIFIC_SCHEMA, valid_result
+from .joint_plan import build_joint_plan
 
 
 DEPTHS = ("quick", "standard", "thorough")
@@ -100,13 +102,22 @@ class Reviewer:
             use_context(ctx)
             t0 = time.monotonic()
             try:
-                roles = (("manuscript", "reviews", "submitted", "figure", "code", "data")
+                roles = (("manuscript", "reviews", "submitted", "figure", "code", "data", "standard")
                          if p.kind != "critique" or p.persona.startswith(("Code", "Figure")) else ("manuscript",))
+                if p.kind == "scientific":
+                    roles = (("manuscript", "standard", "code", "data") if p.task["scope"] in
+                             ("results_statistics", "missing_methods") else ("manuscript", "standard"))
+                def complete(r):
+                    if p.kind == "scientific":
+                        return valid_result(r)
+                    return isinstance(r, list) and (p.kind == "critique" or
+                        {str(it.get("comment_id", "")).strip("[] ") for it in r if isinstance(it, dict)} ==
+                        {c["id"] for c in p.batch})
                 p.result = self._json(p.messages, temperature=p.temperature, roles=roles,
                                      json_schema=p.schema, think=self.think,
-                                     cache_if=lambda r: isinstance(r, list) and (p.kind == "critique" or
-                                     {str(it.get("comment_id", "")).strip("[] ") for it in r if isinstance(it, dict)} ==
-                                     {c["id"] for c in p.batch}))
+                                     cache_if=complete)
+                if not complete(p.result):
+                    p.error = "The model returned an incomplete review pass; rerun to retry it."
                 if p.kind == "critique" and p.result == []:
                     # Models occasionally answer [] on a run where they'd normally find
                     # plenty; one nudge recovers a whole pass's worth of findings.
@@ -259,6 +270,15 @@ class Reviewer:
             passes.append(_Pass(f"Figure {fig.number}" + (" (with image)" if sees else ""), "critique",
                                 [{"role": "system", "content": system}, msg], "Figure referee",
                                 prompts.CRITIQUE_SCHEMA))
+        return passes
+
+    def _scientific_passes(self):
+        self.science = ScientificReview(self.project, self.budget, self.depth, self.dossier)
+        passes = []
+        for task in self.science.tasks():
+            p = _Pass(task["name"], "scientific", task["messages"], task["name"], SCIENTIFIC_SCHEMA, 0.2)
+            p.task = task
+            passes.append(p)
         return passes
 
     def _collect_items(self, passes: list[_Pass]) -> list[dict]:
@@ -614,7 +634,7 @@ class Reviewer:
                 c["figure_refs"] = sorted({int(n) for n in _FIGURE_REF_RE.findall(
                     f"{c.get('location_ref') or ''} {c['comment_text']}")
                                            if any(f.number == int(n) for f in self.figures)})
-        critique_passes = ((self._critique_passes() + self._figure_passes())
+        critique_passes = ((self._critique_passes() + self._figure_passes() + self._scientific_passes())
                            if (mode == "first-draft" or self.independent) else [])
         decode_passes = self._comment_passes(comments, "decode")
         self._run_passes(decode_passes, "Working out what each reviewer actually means", 0.04,
@@ -634,8 +654,23 @@ class Reviewer:
         n_raw = len(items)
         items = dedupe(items)
         items = self._llm_dedupe(items)
+        science = self.science.collect(critique_passes) if hasattr(self, "science") else {
+            "audits": [], "findings": [], "standards": [], "independent_of_reviewer_comments": True}
+        # Detailed source-linked actions bypass broad duplicate merging, which can
+        # otherwise collapse different statistical problems quoting the same result.
+        items.extend(science["findings"])
+        n_raw += len(science["findings"])
         items.sort(key=lambda it: (SEVERITY_RANK[it["severity"]], -it["confidence"], it["title"]))
         self._assign_ids(items)
+        for audit in science["audits"]:
+            audit["finding_ids"] = [it["id"] for it in items if it.get("finding_key") in audit["finding_keys"]]
+        joint_plan = build_joint_plan(self.cache, comments, triage, items, self.material,
+                                     self.budget, self._say)
+        coverage = {r["finding_id"]: r for r in joint_plan.get("reviewer_coverage") or []}
+        for item in items:
+            item["reviewer_coverage"] = coverage.get(item["id"], {
+                "relationship": "uncertain" if comments else "no_reviewer_comments", "comment_ids": [],
+                "explanation": "Not compared with the supplied requests." if comments else "Independent review; no journal comments supplied."})
         self._say(f"Consolidated {n_raw} raw finding(s) into {len(items)} item(s).", 0.88)
 
         # Effort: reviewer comments (what must be done) and independent items
@@ -650,6 +685,8 @@ class Reviewer:
             "generated_at": time.time(),
             "snapshot_id": self.snapshot["id"],
             "cache": self.cache.summary(),
+            "scientific_review": {k: v for k, v in science.items() if k != "findings"},
+            "joint_revision_plan": joint_plan,
             "mode": mode,
             "depth": self.depth,
             "backend": self.llm.display_name,
@@ -727,6 +764,7 @@ class Reviewer:
             comments = self.project.state["comments"]
             fresh = {c["id"]: c for c in (comments_in or [])}
             for c in comments:
+                c["joint_guidance"] = [a for a in (review.get("joint_revision_plan") or {}).get("actions", []) if c["id"] in a["comment_ids"]]
                 if c["id"] in triage:
                     keep = (c.get("triage") or {}).get("stance") if (c.get("triage") or {}).get("stance_set_by_author") else None
                     c["triage"] = triage[c["id"]]

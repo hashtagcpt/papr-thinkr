@@ -51,6 +51,12 @@ class FakeLLM(BaseLLM):
         self.calls.append({"schema": json_schema, "prompt": prompt, "system": messages[0]["content"],
                            "images": messages[-1].get("images")})
         s = json_schema
+        from papr_thinkr.review.scientific import SCIENTIFIC_SCHEMA
+        from papr_thinkr.review.joint_plan import JOINT_PLAN_SCHEMA
+        if s is SCIENTIFIC_SCHEMA:
+            return json.dumps({"summary": "Independent scientific audit completed.", "findings": [], "links": [], "coverage_note": ""})
+        if s is JOINT_PLAN_SCHEMA:
+            return json.dumps({"summary": "Consider requests together.", "actions": [], "reviewer_coverage": []})
         if s is prompts.COMMENT_EXTRACTION_SCHEMA:
             src = prompt.split("SOURCE TEXT:\n---\n", 1)[1].rsplit("\n---", 1)[0]
             paras = [p.strip() for p in re.split(r"\n\s*\n", src) if len(p.strip()) > 20]

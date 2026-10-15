@@ -34,6 +34,7 @@ function renderRevisionChecklist(c) {
       <summary>${a.complete ? "✓" : "○"} ${esc(a.text)}</summary>
       <label class="field-label" for="actionText${i}">Required action</label>
       <textarea id="actionText${i}" rows="2">${esc(a.text)}</textarea>
+      ${a.validation ? `<p class="small-text"><strong>Validation criterion:</strong> ${esc(a.validation)}</p>` : ""}
       <label><input id="actionDone${i}" type="checkbox" ${a.done ? "checked" : ""} /> I have completed this action</label>
       ${a.done && !a.complete ? '<p class="unverified">Completion needs current evidence or a rebuttal rationale.</p>' : ""}
       <div class="action-evidence">${(a.evidence || []).map((e, j) => `<div class="evidence-link">
@@ -113,6 +114,9 @@ async function showSubmissionReview() {
 }
 
 function wireWorkflowEvents() {
+  $("scientificReviewBtn").onclick = showScientificReview;
+  $("scientificReviewCloseBtn").onclick = () => $("scientificReviewModal").classList.add("hidden");
+  $("reviewBackend").onchange = () => { $("reviewModel").value = ""; updateReviewModelNote(); };
   $("submissionBtn").onclick = showSubmissionReview;
   $("refreshSubmissionBtn").onclick = showSubmissionReview;
   $("submissionCloseBtn").onclick = () => $("submissionModal").classList.add("hidden");
@@ -125,4 +129,82 @@ function wireWorkflowEvents() {
     if ($("responseText").value !== (c.response_text || "")) { alert("Save your response text before checking its claims."); return; }
     startJob(`${P()}/comments/${enc(c.id)}/check-response`, { force: $("freshReviewToggle").checked });
   };
+}
+
+function configureReviewModel() {
+  const config = state.project.config.llm || {};
+  fillBackendSelect($("reviewBackend"), config.backend || "", true);
+  $("reviewBackend").options[0].textContent = "Project / server default";
+  $("reviewModel").value = config.model || "";
+  updateReviewModelNote();
+}
+
+function updateReviewModelNote() {
+  const id = $("reviewBackend").value || state.project.config.llm?.backend || state.defaultSettings.backend;
+  fillModelList($("reviewModelList"), id);
+  const backend = state.backends.find(b => b.id === id);
+  $("reviewBackendNote").textContent = backend
+    ? `${backend.label}. ${backend.kind === "local" ? "The review runs on this machine." : "This review sends manuscript and code excerpts, data summaries, and supplied standards to this cloud provider."} ${backend.available ? "" : backend.detail}`
+    : "Choose any supported backend and enter its model name.";
+}
+
+function reviewModelOptions() {
+  const backend = $("reviewBackend").value || state.project.config.llm?.backend || state.defaultSettings.backend;
+  return { backend, model: $("reviewModel").value.trim() || null };
+}
+
+function scientificEvidence(evidence) {
+  return (evidence || []).map(e => `<div class="evidence-link"><strong>${e.verified ? "Verified source quote" : "Unverified — check source"}</strong>
+    · ${esc(e.role || "")}<blockquote>${esc(e.quote)}</blockquote>
+    <div class="small-text">${esc(e.source_path)}${e.line ? ` · line ${e.line}` : ""}${e.source_kind === "derived_data_summary" ? " · derived data summary, not a reanalysis" : ""}</div></div>`).join("");
+}
+
+function normLabel(basis) {
+  return { supplied_standard: "Supplied field standard (quoted)", model_inference: "Model-inferred field expectation — verify applicability", not_applicable: "No field standard invoked" }[basis] || "Field basis unspecified";
+}
+
+function renderScientificDetail(c) {
+  const el = $("scientificDetail"), cr = c.critique || {}, groups = c.joint_guidance || [];
+  el.classList.toggle("hidden", !cr.scope && !groups.length);
+  el.innerHTML = `${cr.scope ? `<h4>${esc(label(cr.scope))} · ${esc(cr.issue_kind || "problem")}</h4>
+    <p class="small-text">${esc(normLabel(cr.norm_basis))}</p>${scientificEvidence(cr.evidence)}${scientificEvidence(cr.norm_evidence)}
+    ${cr.reviewer_coverage ? `<p><strong>Relation to supplied reviews (model assessment):</strong> ${esc(label(cr.reviewer_coverage.relationship))}. ${esc(cr.reviewer_coverage.explanation)}</p>` : ""}
+    ${(cr.actions || []).map(a => `<p><strong>Action:</strong> ${esc(a.action)}<br><strong>Check:</strong> ${esc(a.validation)}</p>`).join("")}` : ""}
+    ${groups.length ? `<h4>Plan across reviewer requests</h4>${groups.map(g => `<details><summary>${esc(g.title)} · ${esc(g.comment_ids.join(", "))}</summary>
+      <p>${esc(g.approach)}</p><p>${esc(label(g.compatibility))}: ${esc(g.tradeoff || "")}</p>
+      <ul>${g.manuscript_changes.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
+      <p class="muted small-text">Proposed changes; each comment still needs completion evidence.</p></details>`).join("")}` : ""}`;
+}
+
+function showScientificReview() {
+  const review = state.project.state.review || {}, science = review.scientific_review || {}, plan = review.joint_revision_plan || {};
+  const links = ids => (ids || []).map(id => `<button class="small science-comment" data-comment="${esc(id)}">${esc(id)}</button>`).join(" ");
+  const uncaught = state.project.state.comments.filter(c => c.critique?.reviewer_coverage?.relationship === "not_raised");
+  $("scientificReviewResults").innerHTML = `<p>The scientific audits assess the paper independently of journal comments. Source excerpts, missing sections and uncertain field expectations are flagged below.</p>
+    ${uncaught.length ? `<h3>Additional issues not raised in supplied reviews</h3><p class="muted small-text">Model assessment against the supplied requests; verify this comparison.</p><ul>${uncaught.map(c => `<li>${links([c.id])} ${esc(c.critique.title)}</li>`).join("")}</ul>` : ""}
+    ${(science.audits || []).length ? science.audits.map(a => `<details class="science-audit" open><summary><strong>${esc(a.name)}</strong></summary>
+      <p>${esc(a.summary)}</p>${a.error ? `<p class="unverified">${esc(a.error)}</p>` : ""}
+      <p class="muted small-text">${a.complete_sources ? "Selected source sections fit in context." : "Sources are missing or excerpted; absence claims need caution."} ${esc(a.coverage_note || "")}</p>
+      ${(a.links || []).map(l => `<div class="science-link"><h4>${esc(l.label)} · ${esc(label(l.verdict))}</h4>
+        <p>${esc(l.explanation)}</p>
+        ${l.reported_analysis ? `<p><strong>Reported analysis:</strong> ${esc(l.reported_analysis)}</p>` : ""}
+        ${l.independent_unit ? `<p><strong>Independent unit:</strong> ${esc(l.independent_unit)}</p>` : ""}
+        <div class="science-columns"><div><strong>Question / result</strong>${scientificEvidence(l.source_evidence)}</div>
+        <div><strong>Discussion / method / statistical analysis</strong>${scientificEvidence(l.target_evidence)}</div></div>
+        <p><strong>Recommended action:</strong> ${esc(l.recommended_action)}</p>
+        ${(l.assumptions || []).length ? `<p><strong>Assumptions to check:</strong> ${esc(l.assumptions.join("; "))}</p>` : ""}
+        <p class="small-text">${esc(normLabel(l.norm_basis))}</p>${scientificEvidence(l.norm_evidence)}</div>`).join("")}
+      <p>Granular findings: ${links(a.finding_ids)}</p></details>`).join("") : "<p>Run an independent review to generate the scientific audits.</p>"}
+    <h3>Joint revision plan</h3><p>${esc(plan.summary || "No joint plan is available yet.")}</p>
+    ${(plan.actions || []).map(g => `<div class="science-link"><h4>${esc(g.title)}</h4><p>${links(g.comment_ids)}</p>
+      <p>${esc(g.approach)}</p><p><strong>${esc(label(g.compatibility))}:</strong> ${esc(g.tradeoff)}</p>
+      <ul>${g.manuscript_changes.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
+      <p><strong>Acceptance criteria:</strong> ${esc(g.acceptance_criteria.join("; "))}</p>
+      ${g.responses.map(r => `<p><strong>${esc(r.comment_id)} response outline:</strong> ${esc(r.response_outline)}</p>`).join("")}
+      <p>Related independent findings: ${links(g.related_finding_ids)}</p></div>`).join("")}
+    ${(plan.uncovered_comment_ids || []).length ? `<p class="unverified">Requests not covered by the combined plan: ${esc(plan.uncovered_comment_ids.join(", "))}</p>` : ""}`;
+  $("scientificReviewModal").classList.remove("hidden");
+  $("scientificReviewResults").querySelectorAll(".science-comment").forEach(button => button.onclick = () => {
+    $("scientificReviewModal").classList.add("hidden"); selectComment(button.dataset.comment);
+  });
 }

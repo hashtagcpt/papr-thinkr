@@ -151,6 +151,7 @@ class TestServer(TempProjects):
         ms.write_text("# Methods\n" + QUOTE + "\n", encoding="utf-8")
         status, created, _ = self.req("POST", "/api/projects", {"name": "Revision", "manuscript_path": str(ms)})
         self.assertEqual(status, 200)
+
         slug = created["slug"]
         base = f"/api/projects/{slug}"
         proj = Project.load(slug)
@@ -188,6 +189,33 @@ class TestServer(TempProjects):
         self.assertEqual(status, 400)
         status, _res, _ = self.req("GET", "/workflow.js")
         self.assertEqual(status, 200)
+
+    def test_cloud_review_override_and_field_standards(self):
+        calls = []
+        def selected_llm(project=None, override=None):
+            calls.append(override)
+            return self.fake
+        server.get_llm = selected_llm
+        ms = self.work / "paper.tex"
+        ms.write_text("\\documentclass{article}\n\\begin{document}\n\\section{Introduction}\nA question.\n"
+                      "\\section{Methods}\nPaired observations.\n\\section{Results}\nA paired difference.\n"
+                      "\\section{Discussion}\nA limited conclusion.\n\\end{document}", encoding="utf-8")
+        standard = self.work / "guideline.md"
+        standard.write_text("Report uncertainty for the estimated effect.", encoding="utf-8")
+        status, proj, _ = self.req("POST", "/api/projects", {"name": "Cloud review", "manuscript_path": str(ms),
+            "field": "Experimental science", "standards_paths": [str(standard)]})
+        self.assertEqual(status, 200)
+        base = f"/api/projects/{proj['slug']}"
+        choice = {"backend": "anthropic-api", "model": "selected-cloud-model"}
+        status, res, _ = self.req("POST", f"{base}/review", {"depth": "quick", "llm": choice})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.wait_job(res["job"]["id"])["status"], "done")
+        self.assertTrue(any(c and c.get("backend") == choice["backend"] and c.get("model") == choice["model"] for c in calls))
+        status, current, _ = self.req("GET", base)
+        self.assertEqual(current["config"]["standards_paths"], [str(standard)])
+        self.assertEqual(len(current["state"]["review"]["scientific_review"]["audits"]), 4)
+        status, _res, _ = self.req("POST", f"{base}/review", {"llm": {"backend": "unknown"}})
+        self.assertEqual(status, 400)
 
 
 if __name__ == "__main__":

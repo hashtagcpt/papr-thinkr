@@ -133,6 +133,13 @@ def propose_patch(llm: BaseLLM, project: Project, comment: dict,
         extra += f"\nSuggested fix: {cr['suggestion']}\n"
     if cr.get("quote"):
         extra += f"\nThe problem text quoted by the reviewer: \"{cr['quote']}\"\n"
+    related = {comment["id"]}
+    for group in comment.get("joint_guidance") or []:
+        if group.get("compatibility") in ("jointly_satisfiable", "compromise"):
+            related.update(group["comment_ids"])
+        extra += (f"\nConsider these reviewers together ({', '.join(group['comment_ids'])}): {group['approach']}\n"
+                  f"Compatible planned changes: {'; '.join(group['manuscript_changes'])}\n"
+                  f"Tradeoff: {group.get('tradeoff') or 'none recorded'}. Prefer one coherent edit when it can satisfy multiple requests.\n")
     if not is_editable(path):
         extra += ("\nThe excerpt was converted from a word-processor file, so markup may differ slightly from the "
                   "original; still copy 'find' exactly from the excerpt.\n")
@@ -155,7 +162,7 @@ def propose_patch(llm: BaseLLM, project: Project, comment: dict,
     saved = project.add_patch(file=patch["file"], find=patch["find"], replace=patch["replace"],
                               rationale=patch["rationale"], comment_id=comment["id"],
                               manuscript=patch["manuscript"], validated=patch["validated"],
-                              validation_message=patch["validation_message"])
+                              validation_message=patch["validation_message"], related_comment_ids=sorted(related))
     return saved
 
 

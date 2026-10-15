@@ -27,6 +27,10 @@ figures) and it will:
 - track **evidence for each revision action**, audit response claims against
   current sources, and export a **submission bundle** with remaining issues
 - save manuscript versions and reuse completed model calls when reviewing again
+- independently compare **introduction versus discussion**, identify missing
+  methods, and link **each result to its statistical analysis and code**
+- plan compatible changes across reviewers and identify additional scientific
+  improvements even when no reviewer raised them
 
 It runs on **local models** (Ollama) or **cloud models**: the Claude Code, Codex and Gemini
 command-line tools (which reuse your existing logins), or the Anthropic, OpenAI
@@ -127,6 +131,73 @@ calls; also use this after changing a provider's default model externally.
 
 ## What it checks in the paper
 
+### Independent scientific audit
+
+With independent review enabled (the default), **every review depth** includes
+four focused audits, whether there are reviewer comments or not:
+
+| Audit | What you get |
+|---|---|
+| **Introduction versus discussion** | A map from the research gap, questions and hypotheses to the discussion's answers; mismatched scope, overclaiming, unanswered questions and concrete edits to both sections |
+| **Missing methods and reporting** | Results traced back to the methods needed to reproduce and interpret them; missing or unclear details are separated from claims that a procedure was never performed |
+| **Results linked to statistical analyses** | Each result connected to its reported model/test, design, independent unit, relevant code, assumptions, uncertainty, and a reasoned assessment of suitability |
+| **Additional strengthening** | Specific improvements outside the journal reviewers' concerns, separating necessary corrections from optional robustness, framing, interpretation and reproducibility improvements |
+
+Open **Scientific audit & joint plan** to inspect these connections and their
+source quotes. The same material is included in the Word report and JSON.
+Every distinct finding becomes a trackable item with concrete actions and
+validation criteria. Separate statistical problems remain separate even when
+they quote the same result sentence. The item filters include **Scientific
+audit findings** and **Ways to strengthen the paper**.
+
+Long results sections are reviewed in multiple target windows. Missing or
+excerpted source sections are flagged; a finding that cannot verify its source
+is marked unverified, and an unsupported result-to-analysis link is returned
+as **insufficient information**, rather than certified as appropriate.
+
+Set the **Field** and optional **Field / journal standards** in project settings
+to make field comparisons more precise. Standards can be local PDF, Word,
+Markdown or text documents. A claim that a supplied guideline supports an
+assessment must carry a verified quote from that document. Without supporting
+standards, comparisons are labelled **model-inferred field expectations**,
+which authors should verify. The app does not fetch current guidelines from
+the internet or execute statistical analyses. Data summaries do not establish
+that diagnostics or model assumptions hold.
+
+### Answering reviewers together
+
+When multiple comments are present, the **Joint revision plan** proposes
+coherent changes that address overlapping requests together, gives each
+reviewer a specific response outline, and states acceptance criteria. For
+requests such as "shorten the methods" and "add methodological detail", it
+can suggest a concise main-text explanation with fuller supplementary detail.
+Incompatible requests remain explicit, with a compromise or defensible
+rebuttal; scientific validity takes precedence over pleasing a reviewer.
+
+The joint plan informs manuscript edit proposals and response drafts. A shared
+patch can be linked to several compatible requests, but it never automatically
+marks any of them addressed. The evidence checklist and response audit still
+verify each request separately. Uncovered requests are listed rather than
+silently omitted.
+
+After the independent audit, findings are compared with the supplied reviewer
+requests. They are labelled **already raised**, **extends a request**,
+**not raised**, or **uncertain**. The **Not raised in supplied reviews** filter
+highlights possible blind spots. This comparison is a model assessment; an
+excerpted decision letter cannot certify that a concern was never raised.
+
+### LaTeX manuscripts
+
+Point the project at the master `.tex` file. Folder discovery scores its
+expanded manuscript, so a short master file with all prose in included files
+is supported. `\input{file}`, `\input file`, `\include{file}` and
+`\subfile{file}` are followed with cycle protection; nested includes can
+resolve relative to the component or master directory. Scientific audit quotes
+retain their actual component file and source line. Edits target the matching
+component, preserve its encoding/line endings, and require Apply with a backup.
+
+### Other independent checks
+
 - **Five referee perspectives**: methods and design, statistics, claims and
   significance, clarity and presentation, reproducibility. Each finding comes
   with severity, location, a verbatim quote (checked against your text), a
@@ -165,6 +236,14 @@ finding carries a confidence.
 
 ## Models and logins
 
+The review toolbar has a **local or cloud model** selector and accepts the
+model name directly. Select Ollama, a cloud CLI, or an API backend for each
+review without changing the project's default used by chat and drafting.
+All backends run the same granular scientific audits and joint revision plan;
+cloud selection does not reduce the critique to reviewer-comment triage.
+Supply the backend's existing login/API key through the backend panel, then
+enter a model available to that account. There is no silent provider fallback.
+
 | Backend | Kind | Notes |
 |---|---|---|
 | `ollama` | local | Auto-picks the best installed model (e.g. `qwen3.6:27b`, `gemma4:31b`). Vision-capable models also look at figures. |
@@ -189,6 +268,7 @@ python papr.py review paper.docx --reviews decision.pdf --submitted-pdf submitte
        --code analysis/ --data data/ --figures figs/ --journal IOVS --depth thorough
 python papr.py review --project <slug> --backend codex     # re-review after revising (keeps your notes)
 python papr.py review --project <slug> --fresh             # bypass completed-call checkpoints
+python papr.py review main.tex --backend anthropic-api --model <model-name> --field "experimental psychology" --standards reporting-guideline.pdf
 python papr.py submission <slug>                          # evidence/readiness checks, no model call
 python papr.py submission <slug> --check --backend ollama  # audit response claims, then check readiness
 python papr.py submission <slug> --out submission.zip      # export, including unresolved issues
@@ -240,6 +320,8 @@ papr_thinkr/
     checks.py             deterministic manuscript and figure checks
     findings.py           merging duplicates, verifying quotes
     effort.py             effort estimates
+    scientific.py         independent section links, missing methods and result/statistics maps
+    joint_plan.py         compatible revisions and response outlines across reviewers
   revision/             after the review
     patches.py            propose / apply / revert manuscript edits
     gap_analysis.py       what's addressed now?

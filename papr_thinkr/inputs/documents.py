@@ -148,7 +148,18 @@ def extract_text(path: str | Path) -> str:
     return decode_bytes(raw)[0]
 
 
-_TEX_INCLUDE_RE = re.compile(r"\\(input|include|subfile)\s*\{([^}]+)\}")
+_TEX_INCLUDE_RE = re.compile(r"\\(input|include|subfile)\s*(?:\{([^}]+)\}|([^\s%{}]+))")
+
+
+def _tex_include_path(parent: Path, name: str, root: Path) -> Path:
+    for folder in dict.fromkeys((parent, root)):
+        candidate = folder / name.strip()
+        if not candidate.suffix:
+            candidate = candidate.with_suffix(".tex")
+        if candidate.is_file():
+            return candidate
+    candidate = parent / name.strip()
+    return candidate if candidate.suffix else candidate.with_suffix(".tex")
 
 _TEX_COMMENT_RE = re.compile(r"(?<!\\)%.*$", re.MULTILINE)
 
@@ -157,9 +168,10 @@ def _strip_tex_comments(text: str) -> str:
     return _TEX_COMMENT_RE.sub("", text)
 
 
-def tex_component_files(main: str | Path, _seen: set | None = None, _depth: int = 0) -> list[Path]:
+def tex_component_files(main: str | Path, _seen: set | None = None, _depth: int = 0, _root: Path | None = None) -> list[Path]:
     """Main .tex file followed by every file it (transitively) \\input's."""
     main = Path(main).resolve()
+    root = _root or main.parent
     seen = _seen if _seen is not None else set()
     if main in seen or _depth > 12 or not main.exists():
         return []
@@ -167,17 +179,16 @@ def tex_component_files(main: str | Path, _seen: set | None = None, _depth: int 
     files = [main]
     text = _strip_tex_comments(read_text_file(main)[0])
     for m in _TEX_INCLUDE_RE.finditer(text):
-        name = m.group(2).strip()
-        cand = (main.parent / name)
-        if cand.suffix.lower() != ".tex":
-            cand = cand.with_name(cand.name + ".tex") if not cand.exists() else cand
+        name = (m.group(2) or m.group(3)).strip()
+        cand = _tex_include_path(main.parent, name, root)
         if cand.exists():
-            files.extend(tex_component_files(cand, seen, _depth + 1))
+            files.extend(tex_component_files(cand, seen, _depth + 1, root))
     return files
 
 
-def flatten_tex(main: str | Path, _depth: int = 0, _seen: set | None = None) -> str:
+def flatten_tex(main: str | Path, _depth: int = 0, _seen: set | None = None, _root: Path | None = None) -> str:
     main = Path(main).resolve()
+    root = _root or main.parent
     seen = _seen if _seen is not None else set()
     if main in seen or _depth > 12:
         return ""
@@ -189,13 +200,11 @@ def flatten_tex(main: str | Path, _depth: int = 0, _seen: set | None = None) -> 
         line_start = text.rfind("\n", 0, m.start()) + 1
         if "%" in text[line_start:m.start()].replace("\\%", ""):
             return m.group(0)
-        name = m.group(2).strip()
-        cand = main.parent / name
-        if cand.suffix.lower() != ".tex" and not cand.exists():
-            cand = cand.with_name(cand.name + ".tex")
+        name = (m.group(2) or m.group(3)).strip()
+        cand = _tex_include_path(main.parent, name, root)
         if not cand.exists():
             return m.group(0)
-        return f"\n% ---- begin {cand.name} ----\n{flatten_tex(cand, _depth + 1, seen)}\n% ---- end {cand.name} ----\n"
+        return f"\n% ---- begin {cand.name} ----\n{flatten_tex(cand, _depth + 1, seen, root)}\n% ---- end {cand.name} ----\n"
 
     return _TEX_INCLUDE_RE.sub(repl, text)
 

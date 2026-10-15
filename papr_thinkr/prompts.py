@@ -424,6 +424,8 @@ assume the authors "probably did it right" when the text doesn't show it.
 But be RIGOROUS, not careless:
 - Every criticism must be specific, located (section / figure / table / line), \
 grounded in the actual text (quote it), and actionable.
+- Keep distinct problems and corrective actions separate even when they affect \
+the same sentence. Assess the science independently of journal reviewers' comments.
 - Never invent content, numbers, citations or quotes. If something is missing, \
 say it is missing -- don't pretend to quote it.
 - Never invent references. If prior work should be cited, describe the kind of work \

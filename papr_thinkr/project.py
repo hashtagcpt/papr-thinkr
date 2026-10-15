@@ -75,6 +75,7 @@ def default_config(name: str, slug: str) -> dict:
         "comment_sources": [],    # [{"path": str, "label": str}]
         "code_paths": [],         # files or directories
         "data_paths": [],         # files or directories
+        "standards_paths": [],    # field/journal reporting guidelines supplied by the author
         "submitted_pdf": None,    # the line-numbered PDF the reviewers read
         "figures_dir": None,      # figure files submitted separately (optional)
         "gap_plan_file": None,
@@ -310,8 +311,11 @@ class Project:
         }
         with self.mutate():
             self.state["patches"].append(patch)
+            linked_comments = set(extra.get("related_comment_ids") or [])
             if comment_id:
-                c = self.get_comment(comment_id)
+                linked_comments.add(comment_id)
+            for cid in linked_comments:
+                c = self.get_comment(cid)
                 if c is not None:
                     c.setdefault("patch_ids", []).append(patch["id"])
         return patch

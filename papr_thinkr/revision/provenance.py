@@ -12,7 +12,8 @@ import time
 from pathlib import Path
 
 from ..inputs.code_and_data import SKIP_DIRS
-from ..inputs.documents import read_text_file, tex_component_files
+from ..inputs.documents import (_TEX_INCLUDE_RE, _strip_tex_comments, _tex_include_path,
+                                read_text_file, tex_component_files)
 from ..project import _atomic_write_json
 
 
@@ -72,14 +73,17 @@ def source_manifest(project) -> dict:
                 for gp in re.findall(r"\\graphicspath\s*\{((?:\{[^}]*\})+)\}", read_text_file(component)[0]):
                     roots.extend(p.resolve().parent / name for name in re.findall(r"\{([^}]*)\}", gp))
             for component in sources:
-                text = read_text_file(component)[0]
+                text = _strip_tex_comments(read_text_file(component)[0])
                 # Track bibliography changes and includes that are currently missing, too.
-                for match in re.finditer(r"\\(input|include|subfile|bibliography|addbibresource)(?:\[[^\]]*\])?\{([^}]+)\}", text):
-                    is_bib = match.group(1) in ("bibliography", "addbibresource")
+                for match in _TEX_INCLUDE_RE.finditer(text):
+                    add(_tex_include_path(component.parent, match.group(2) or match.group(3), p.resolve().parent), "manuscript")
+                for match in re.finditer(r"\\(bibliography|addbibresource)(?:\[[^\]]*\])?\{([^}]+)\}", text):
                     for name in match.group(2).split(","):
                         target = component.parent / name.strip()
                         if not target.suffix:
-                            target = target.with_suffix(".bib" if is_bib else ".tex")
+                            target = target.with_suffix(".bib")
+                        if not target.is_file() and (p.resolve().parent / target.name).is_file():
+                            target = p.resolve().parent / target.name
                         add(target, "manuscript")
                 targets = re.findall(r"\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}|!\[[^\]]*\]\(([^)]+)\)", text)
                 for pair in targets:
@@ -93,7 +97,7 @@ def source_manifest(project) -> dict:
                     add(target, "figure")
     for source in cfg.get("comment_sources") or []:
         add(source["path"], "reviews")
-    for key, role in (("code_paths", "code"), ("data_paths", "data")):
+    for key, role in (("code_paths", "code"), ("data_paths", "data"), ("standards_paths", "standard")):
         for path in cfg.get(key) or []:
             add(path, role)
     for key, role in (("submitted_pdf", "submitted"), ("figures_dir", "figure"), ("gap_plan_file", "plan")):
