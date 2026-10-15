@@ -256,3 +256,15 @@ input, textarea, select {
 .key-row { display: grid; grid-template-columns: 1fr 220px auto auto; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
 .key-row .ok { color: var(--addressed); }
 @media (max-width: 700px) { .key-row { grid-template-columns: 1fr; } }
+
+/* Revision evidence and submission review */
+.revision-banner { margin: 10px 12px; padding: 10px; border: 1px solid var(--border, #d4dbe5); border-radius: 6px; font-size: 12px; overflow-wrap: anywhere; }
+.revision-banner details { margin: 6px 0; }
+.revision-action { padding: 12px 0; border-bottom: 1px solid var(--border, #d4dbe5); }
+.revision-action summary { cursor: pointer; font-weight: 600; margin-bottom: 10px; }
+.revision-action select, .revision-action input:not([type=checkbox]) { width: 100%; margin: 5px 0; }
+.revision-action textarea { width: 100%; margin: 5px 0; }
+.evidence-link { margin: 9px 0; padding: 8px; background: rgba(127,127,127,.07); border-radius: 5px; overflow-wrap: anywhere; }
+.evidence-link blockquote { white-space: pre-wrap; }
+#submissionResults li { margin: 10px 0; }
+#responseAudit { margin-top: 12px; }

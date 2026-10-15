@@ -25,7 +25,8 @@ _SECTION_RE = re.compile(
 
 _MAX_CHARS_PER_CALL = 9000
 USER_FIELDS = ("status", "status_evidence", "suggested_action", "author_notes", "response_text",
-               "patch_ids", "triage", "assessed_status")
+               "patch_ids", "triage", "assessed_status", "revision_actions", "response_check",
+               "response_snapshot_id", "gap_snapshot_id", "assessment_snapshot_id")
 
 
 def _clean_section_label(label: str) -> str:

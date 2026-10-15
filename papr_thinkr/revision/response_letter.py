@@ -10,6 +10,7 @@ from ..inputs.line_refs import refs_block
 from ..llm import BaseLLM
 from ..project import Project
 from ..report.word import markdown_to_docx
+from .provenance import capture_snapshot
 
 
 def _decoded_notes(comment: dict) -> str:
@@ -27,6 +28,7 @@ def _decoded_notes(comment: dict) -> str:
 
 
 def draft_response_letter_item(llm: BaseLLM, project: Project, comment: dict) -> str:
+    snapshot = capture_snapshot(project, "Response draft")
     patches = [project.get_patch(pid) for pid in comment.get("patch_ids", [])]
     applied = [p for p in patches if p and p.get("status") == "applied"]
     if applied:
@@ -57,7 +59,7 @@ def draft_response_letter_item(llm: BaseLLM, project: Project, comment: dict) ->
     ], json_schema=prompts.RESPONSE_LETTER_ITEM_SCHEMA)
     text = (result.get("response_text", "") if isinstance(result, dict) else "").strip()
     if text:
-        project.update_comment(comment["id"], response_text=text)
+        project.update_comment(comment["id"], response_text=text, response_snapshot_id=snapshot["id"])
     return text
 
 

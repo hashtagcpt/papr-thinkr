@@ -24,6 +24,9 @@ figures) and it will:
 - **turn your honest reaction into a professional reply** ("vent → reply")
 - write it all up as a **Word report**, then help you edit the manuscript
   (diff, backup, undo) and assemble the response letter
+- track **evidence for each revision action**, audit response claims against
+  current sources, and export a **submission bundle** with remaining issues
+- save manuscript versions and reuse completed model calls when reviewing again
 
 It runs on **local models** (Ollama) or **cloud models**: the Claude Code, Codex and Gemini
 command-line tools (which reuse your existing logins), or the Anthropic, OpenAI
@@ -64,6 +67,63 @@ python papr.py review --dir examples/demo-paper --backend ollama --depth standar
 | **Conflicts and duplicates** between reviewers | Spot "shorten it" vs "expand it" before you start |
 | **Vent → reply**: type what you really think, get the reply you should send | Keeps every real argument and drops the heat |
 | **Quick wins** list | Clear the easy items first |
+| **Revision checklist** | Break a request into actions, link source quotes and applied edits, and record the response passage |
+| **Response claim audit** | Check claimed changes and unanswered subrequests against current evidence; unsupported claims stay flagged |
+| **File versions** | Mark assessments, evidence and response drafts stale after source files change |
+
+## From reviews to a submission
+
+1. Select a comment. Its **Revision checklist** starts from the triage's
+   required changes (or the decoded subrequests). Edit these actions or add
+   missing subrequests yourself.
+2. For each action, link an applied manuscript edit, or select a project file
+   and paste an exact supporting passage. Mark the action complete and save.
+   Quotes are checked against the actual file. A rebuttal can instead have
+   a written rationale with the stance set to **rebut** or status **won't fix**.
+3. Draft or write the response. Optionally link each action to its exact
+   response paragraph. **Check response claims** asks the selected model to
+   audit factual and completion claims and identify unanswered subrequests.
+   Supporting quotes returned by the model are checked against the supplied
+   sources; invented quotes cannot earn a supported result.
+4. Open **Submission check**, then **Check all response claims**. The checklist
+   flags open requests, missing evidence/responses, placeholders, stale audits,
+   reverted or missing edits, and unanswered or unsupported claims. Downloads
+   remain available while there are blockers, clearly labelled **DRAFT**.
+5. **Download submission bundle (.zip)** exports the response letter in Word
+   and Markdown, a change summary, submission review in Markdown/JSON, the
+   evidence checklist, and a source-version manifest. Private author notes,
+   chat, original source files and API keys are excluded. Review the bundle
+   before submitting it.
+
+Model audits assess the material they are given; they do not prove scientific
+correctness or that an analysis was executed. When a manuscript exceeds the
+model's context, the audit records its excerpt-coverage note and can return
+**unclear**. Authors decide whether and when to submit.
+
+### Versions and interrupted reviews
+
+The **File versions** panel compares the current files with the latest saved
+snapshot. Use **Refresh file versions** after editing outside the app, or
+**Save snapshot** to record a version. Reviews, gap analyses, response drafts,
+audits, and manuscript edits also record their input versions automatically.
+
+Snapshots live in `projects/<slug>/snapshots/`. They contain immutable copies
+of manuscript sources (including LaTeX components and bibliographies) and
+SHA-256 manifests for configured reviewer letters, code, data, and figures.
+Large datasets and images are hashed, not copied. Evidence quotes must be
+rechecked and saved after their source changes, even if the quote still exists.
+Projects created before version tracking show **unknown** until reassessed.
+
+Completed model calls are saved atomically under
+`projects/<slug>/review-cache/`. After cancellation or a server restart, rerun
+the same review: matching calls are reused and missing calls continue. Gap
+analysis saves each completed batch immediately; **Reassess this comment**
+runs it for just the selected item. Cache keys include the model/backend,
+endpoint, context options, prompts, schemas, image content and relevant source
+versions. Changes to data invalidate the audit passes that use it while
+unaffected manuscript critique calls can be reused. Failed and incomplete
+batches are retried. **Ignore saved review calls** or CLI `--fresh` forces new
+calls; also use this after changing a provider's default model externally.
 
 ## What it checks in the paper
 
@@ -128,6 +188,10 @@ python papr.py review --dir D:\papers\my-paper --backend claude-code --out revie
 python papr.py review paper.docx --reviews decision.pdf --submitted-pdf submitted.pdf \
        --code analysis/ --data data/ --figures figs/ --journal IOVS --depth thorough
 python papr.py review --project <slug> --backend codex     # re-review after revising (keeps your notes)
+python papr.py review --project <slug> --fresh             # bypass completed-call checkpoints
+python papr.py submission <slug>                          # evidence/readiness checks, no model call
+python papr.py submission <slug> --check --backend ollama  # audit response claims, then check readiness
+python papr.py submission <slug> --out submission.zip      # export, including unresolved issues
 python papr.py batch papers.json                           # several papers (see examples/batch.json)
 python papr.py report <slug> | letter <slug> | list | keys
 ```
@@ -135,6 +199,10 @@ python papr.py report <slug> | letter <slug> | list | keys
 `python -m papr_thinkr ...` works too. `--json` (or `--json -` for stdout)
 writes every item, its triage and its decoding as JSON, for other programs to
 use.
+
+The `submission` command exits with **0** when no blockers remain, **2** when
+the submission is still a draft, and **1** on an operational error. An export
+can be produced for a draft without calling a model.
 
 ## Review depth and time
 
@@ -177,6 +245,11 @@ papr_thinkr/
     gap_analysis.py       what's addressed now?
     chat.py               co-author chat
     response_letter.py    response letter, vent -> reply
+    checklist.py          author actions, source evidence and patch links
+    provenance.py         content versions and manuscript snapshots
+    cache.py              durable model-call checkpoints
+    consistency.py        response claim and subrequest audits
+    submission.py         readiness checks, change summary and ZIP export
   report/               the Word report (pandoc, or a built-in writer)
   web/                  the browser UI (server.py, jobs.py, static/)
 docs/                   api-keys-and-logins.md

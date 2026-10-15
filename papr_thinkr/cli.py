@@ -32,7 +32,7 @@ from .llm import CallContext, LLMError, canonical_backend, detect_backends, make
 from .project import Project, ProjectNotFound
 from .report import review_report
 from .review import DEPTHS, describe_hours, run_review
-from .revision import response_letter
+from .revision import consistency, response_letter, submission
 
 
 def _log(msg: str, frac: float | None = None) -> None:
@@ -79,6 +79,9 @@ def run_one(spec: dict, base_dir: Path | None = None) -> dict:
     """Review one paper. spec keys: manuscript (or dir), reviews, code, data,
     submitted_pdf, figures_dir, name, title, journal, field, backend, model,
     think, depth, independent, project, out, json, num_ctx, ollama_host, timeout."""
+    if spec.get("project") and not spec.get("manuscript") and not spec.get("dir"):
+        existing = Project.load(spec["project"])
+        spec = dict(spec, manuscript=str(existing.manuscript_path()))
     if spec.get("dir"):
         found = discover(_abs(spec["dir"], base_dir))
         _log(f"Found in {found['folder']}:")
@@ -165,7 +168,7 @@ def run_one(spec: dict, base_dir: Path | None = None) -> dict:
             _log(f"  {len(items)} comment(s)")
         p.reload()
         return run_review(llm, p, progress=_log, depth=review_cfg["depth"],
-                                 independent=review_cfg["independent_review"])
+                                 independent=review_cfg["independent_review"], force=spec.get("fresh", False))
 
     result, _ctx = _run_cancellable(work)
     proj.reload()
@@ -265,6 +268,7 @@ def _spec_from_args(args) -> dict:
         "backend": args.backend, "model": args.model, "think": args.think, "depth": args.depth,
         "independent": not args.no_independent, "project": args.project, "out": args.out,
         "json": args.json, "num_ctx": args.num_ctx, "ollama_host": args.ollama_host, "timeout": args.timeout,
+        "fresh": args.fresh,
     }
 
 
@@ -346,6 +350,23 @@ def cmd_letter(args) -> int:
     return 0
 
 
+def cmd_submission(args) -> int:
+    proj = Project.load(args.slug)
+    if args.check:
+        cfg = proj.config.get("llm") or {}
+        llm = make_llm(args.backend or cfg.get("backend") or "ollama", args.model or cfg.get("model"),
+                       ollama_host=args.ollama_host)
+        result = consistency.check_all_responses(llm, proj, progress=_log, force=args.fresh)
+        for error in result["errors"]:
+            _log(f"{error['comment_id']}: {error['error']}")
+        proj.reload()
+    review = submission.build_submission_review(proj)
+    print(submission.review_markdown(review))
+    if args.out:
+        _log(f"Bundle: {submission.write_bundle(proj, args.out)}")
+    return 0 if review["ready"] else 2
+
+
 def cmd_list(args) -> int:
     for cfg in Project.list_all():
         try:
@@ -412,6 +433,7 @@ def main(argv=None) -> int:
     p.add_argument("--no-independent", action="store_true",
                    help="with --reviews: only triage the reviewers' comments, skip the independent critique")
     p.add_argument("--project", help="re-review an existing project (slug) instead of creating a new one")
+    p.add_argument("--fresh", action="store_true", help="ignore saved model calls; otherwise reuse completed matching calls")
     p.add_argument("--out", help="report path (.docx or .md); default: projects/<slug>/reports/")
     p.add_argument("--json", help="also write machine-readable results to this file ('-' for stdout)")
     p.add_argument("--num-ctx", type=int, help="Ollama context window in tokens (default 32768)")
@@ -434,6 +456,14 @@ def main(argv=None) -> int:
     p.add_argument("--out")
     p.set_defaults(fn=cmd_letter)
 
+    p = sub.add_parser("submission", help="check revision evidence and export a submission bundle")
+    p.add_argument("slug")
+    p.add_argument("--check", action="store_true", help="audit response claims with the selected model")
+    p.add_argument("--fresh", action="store_true", help="ignore saved response checks")
+    p.add_argument("--out", help="write a ZIP containing the response letter, change summary, checks and source manifest")
+    llm_opts(p)
+    p.set_defaults(fn=cmd_submission)
+
     p = sub.add_parser("list", help="list projects")
     p.set_defaults(fn=cmd_list)
 
@@ -443,6 +473,6 @@ def main(argv=None) -> int:
         return args.fn(args)
     except KeyboardInterrupt:
         return 130
-    except (LLMError, ProjectNotFound, documents.IngestError, FileNotFoundError) as e:
+    except (LLMError, ProjectNotFound, documents.IngestError, FileNotFoundError, ValueError, RuntimeError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1

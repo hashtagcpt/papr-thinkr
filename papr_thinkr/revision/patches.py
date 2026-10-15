@@ -20,6 +20,7 @@ from ..inputs.documents import (EDITABLE_EXTS, flatten_tex, is_editable, manuscr
                                 tex_component_files, write_text_file)
 from ..llm import BaseLLM, LLMError
 from ..project import Project
+from .provenance import capture_snapshot, file_hash
 
 
 class PatchError(RuntimeError):
@@ -182,6 +183,7 @@ def diff_preview(project: Project, patch: dict, context_lines: int = 3) -> str:
 
 
 def apply_patch(project: Project, patch_id: str) -> dict:
+    before = capture_snapshot(project, "Before manuscript edit")
     with project.mutate():
         patch = project.get_patch(patch_id)
         if patch is None:
@@ -204,12 +206,15 @@ def apply_patch(project: Project, patch_id: str) -> dict:
         patch["status"] = "applied"
         patch["backup_path"] = str(backup_path)
         patch["file_encoding"] = meta.encoding
+        patch["before_snapshot_id"] = before["id"]
+        patch["applied_sha256"] = file_hash(path)
         return dict(patch)
 
 
 def revert_patch(project: Project, patch_id: str) -> dict:
     """Undo an applied patch by swapping the replacement text back (only if it
     is still present exactly once), after taking another backup."""
+    capture_snapshot(project, "Before reverting manuscript edit")
     with project.mutate():
         patch = project.get_patch(patch_id)
         if patch is None:

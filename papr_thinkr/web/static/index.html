@@ -56,7 +56,10 @@
         <a id="reportDocxLink" class="button-link" href="#" download>Report (.docx)</a>
         <button id="exportLetterBtn" title="Point-by-point response letter">Response letter</button>
         <button id="overviewBtn" title="Show the overall assessment">Overview</button>
+        <button id="submissionBtn">Submission check</button>
       </div>
+      <div class="filter-row"><label><input id="freshReviewToggle" type="checkbox" /> Ignore saved review calls</label></div>
+      <div id="revisionBanner" class="revision-banner" aria-live="polite"></div>
       <div class="filter-row">
         <select id="filterSelect" aria-label="Show">
           <option value="all">All items</option>
@@ -116,6 +119,7 @@
           <div><strong>Gap analysis evidence:</strong> <span id="detailEvidence"></span></div>
           <div><strong>Still to do:</strong> <span id="detailAction"></span></div>
         </div>
+        <div id="revisionChecklist" class="info-block"></div>
 
         <label class="field-label" for="detailNotes">Author notes</label>
         <textarea id="detailNotes" rows="2" placeholder="Private notes to yourself about this item…"></textarea>
@@ -136,6 +140,8 @@
           <label class="field-label" for="responseText">Response to reviewer</label>
           <textarea id="responseText" rows="5" placeholder="Draft it with the button above, or write your own."></textarea>
           <button id="saveResponseBtn">Save response text</button>
+          <button id="checkResponseBtn">Check response claims</button>
+          <div id="responseAudit" aria-live="polite"></div>
         </div>
       </div>
     </section>
@@ -326,6 +332,20 @@
   </div>
 </div>
 
+<div id="submissionModal" class="modal hidden">
+  <div class="modal-box wide">
+    <h2>Submission check</h2>
+    <p>Connect every request to completed actions, current evidence, and an accurate response.</p>
+    <div class="pane-actions wrap">
+      <button id="auditAllResponsesBtn">Check all response claims</button>
+      <button id="refreshSubmissionBtn">Refresh checklist</button>
+      <a id="submissionBundleLink" class="button-link" href="#" download>Download submission bundle (.zip)</a>
+    </div>
+    <div id="submissionResults" aria-live="polite"></div>
+    <div class="modal-actions"><button id="submissionCloseBtn">Close</button></div>
+  </div>
+</div>
+<script src="/workflow.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

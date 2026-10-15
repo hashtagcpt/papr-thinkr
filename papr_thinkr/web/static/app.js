@@ -170,9 +170,11 @@ async function selectProject(slug) {
 
 async function refreshProject() {
   state.project = await api("GET", P());
+  renderRevisionBanner();
 }
 
 function renderAll() {
+  renderRevisionBanner();
   renderComments();
   if (getSelectedComment()) renderDetail(); else showOverview();
   const hasReview = !!(state.project && state.project.state.review);
@@ -450,6 +452,8 @@ function renderDetail() {
   $("draftResponseBtn").classList.toggle("hidden", c.origin === "ai-review");
   $("responseBlock").classList.toggle("hidden", c.origin === "ai-review" && !c.response_text);
   renderPatchList(c);
+  renderRevisionChecklist(c);
+  renderResponseAudit(c);
 }
 
 function renderRefs(c) {
@@ -1036,10 +1040,10 @@ function wireEvents() {
     const what = n ? `triage ${n} reviewer comment(s)${p.config.review.independent_review ? " and run an independent critique" : ""}`
       : "critique this draft";
     if (confirm(`Run a ${p.config.review.depth} review to ${what}? This can take from a few minutes (cloud) to an hour (large local model). You can keep working meanwhile.`)) {
-      startJob(`${P()}/review`, {});
+      startJob(`${P()}/review`, { force: $("freshReviewToggle").checked });
     }
   });
-  $("gapAnalysisBtn").addEventListener("click", () => startJob(`${P()}/gap-analysis`, {}));
+  $("gapAnalysisBtn").addEventListener("click", () => startJob(`${P()}/gap-analysis`, { force: $("freshReviewToggle").checked }));
   $("overviewBtn").addEventListener("click", showOverview);
   $("exportLetterBtn").addEventListener("click", exportLetter);
   $("letterCloseBtn").addEventListener("click", () => $("letterModal").classList.add("hidden"));
@@ -1091,6 +1095,7 @@ function wireEvents() {
 
 async function init() {
   wireEvents();
+  wireWorkflowEvents();
   try { state.calm = !!localStorage.getItem("papr.calm"); } catch (e) { /* ignore */ }
   $("calmToggle").checked = state.calm;
   await refreshBackends();

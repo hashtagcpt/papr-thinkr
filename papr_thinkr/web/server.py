@@ -24,6 +24,7 @@ from ..project import COMMENT_STATUSES, Project, ProjectNotFound
 from ..report import review_report
 from ..review import DEPTHS, run_review
 from ..revision import chat, gap_analysis, patches, response_letter
+from ..revision import checklist, consistency, provenance, submission
 from .jobs import JobManager
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -181,7 +182,7 @@ def _job_review(job, slug: str, options: dict) -> dict:
     llm = get_llm(proj)
     job.say(f"Using {llm.display_name}")
     result = run_review(llm, proj, progress=job.say, depth=options.get("depth"),
-                               independent=options.get("independent"))
+                               independent=options.get("independent"), force=options.get("force", False))
     proj.reload()
     path = review_report.write_report(proj)
     job.say(f"Report written: {path}")
@@ -202,10 +203,11 @@ def _job_prepare_and_review(job, slug: str, options: dict) -> dict:
     return out
 
 
-def _job_gap(job, slug: str, label: str | None) -> dict:
+def _job_gap(job, slug: str, label: str | None, comment_ids=None, force=False) -> dict:
     proj = Project.load(slug)
     llm = get_llm(proj)
-    gap_analysis.run_gap_analysis(llm, proj, manuscript_label=label, progress=job.say)
+    gap_analysis.run_gap_analysis(llm, proj, manuscript_label=label, progress=job.say,
+                                 comment_ids=comment_ids, force=force)
     proj.reload()
     s = proj.summary()
     return {"n_addressed": s["n_addressed"], "errors": proj.state.get("gap_analysis_errors")}
@@ -393,7 +395,15 @@ def h_get_project(handler, params, body):
     cfg = dict(proj.config)
     cfg["gap_plan_text"] = (cfg.get("gap_plan_text") or "")[:200] or None
     jobs = [j.as_dict(log_since=10**9) for j in JOBS.for_project(proj.slug)[:5]]
+    manifest = provenance.source_manifest(proj)
     return {"config": cfg, "state": proj.state, "summary": proj.summary(), "jobs": jobs,
+            "revision": provenance.revision_view(proj, manifest),
+            "source_files": [{"path": f["path"], "roles": f["roles"]} for f in manifest["files"]],
+            "checklists": {c["id"]: checklist.comment_view(proj, c, manifest) for c in proj.state["comments"]},
+            "response_checks": {c["id"]: consistency.check_view(c, manifest) for c in proj.state["comments"]},
+            "artifact_versions": {c["id"]: {k: provenance.freshness(c.get(field), manifest) for k, field in
+                 (("assessment", "assessment_snapshot_id"), ("gap", "gap_snapshot_id"), ("response_draft", "response_snapshot_id"))}
+                 for c in proj.state["comments"]},
             "editable": documents.is_editable(proj.manuscript_path())}
 
 
@@ -479,14 +489,18 @@ def h_gap_analysis(handler, params, body):
     if not proj.state["comments"]:
         raise ApiError("There are no comments to assess yet.")
     label = body.get("manuscript_label")
-    job = JOBS.start("gap-analysis", proj.slug, "Gap analysis", lambda j: _job_gap(j, proj.slug, label))
+    ids = body.get("comment_ids")
+    if ids is not None and (not isinstance(ids, list) or not ids or any(not isinstance(cid, str) or not proj.get_comment(cid) for cid in ids)):
+        raise ApiError("comment_ids must be a nonempty list of existing comment IDs")
+    job = JOBS.start("gap-analysis", proj.slug, "Gap analysis", lambda j: _job_gap(j, proj.slug, label, ids, body.get("force") is True))
     return {"job": _job_dict(job)}
 
 
 def h_start_review(handler, params, body):
     proj = Project.load(params["slug"])
     opts = {"depth": body.get("depth") if body.get("depth") in DEPTHS else None,
-            "independent": body.get("independent") if body.get("independent") in (True, False) else None}
+            "independent": body.get("independent") if body.get("independent") in (True, False) else None,
+            "force": body.get("force") is True}
     try:
         get_llm(proj)
     except LLMError as e:
@@ -535,6 +549,8 @@ def h_update_comment(handler, params, body):
         if k in fields and not isinstance(fields[k], str):
             raise ApiError(f"'{k}' must be a string")
     if fields:
+        if "response_text" in fields:
+            fields["response_snapshot_id"] = provenance.capture_snapshot(proj, "Author response edit")["id"]
         return proj.update_comment(params["comment_id"], **fields)
     proj.reload()
     return proj.get_comment(params["comment_id"])
@@ -637,6 +653,57 @@ def h_report_docx(handler, params, body):
     return ("file", path, path.name)
 
 
+def h_save_action(handler, params, body):
+    proj = Project.load(params["slug"])
+    try:
+        return checklist.save_action(proj, params["comment_id"], body, params.get("action_id"))
+    except ValueError as e:
+        raise ApiError(str(e))
+
+
+def h_delete_action(handler, params, body):
+    checklist.delete_action(Project.load(params["slug"]), params["comment_id"], params["action_id"])
+    return {"ok": True}
+
+
+def h_snapshot(handler, params, body):
+    return provenance.capture_snapshot(Project.load(params["slug"]), str(body.get("label") or "Author snapshot")[:120])
+
+
+def h_check_response(handler, params, body):
+    proj = Project.load(params["slug"])
+    cid = params["comment_id"]
+    if not proj.get_comment(cid):
+        raise ApiError("Comment not found", 404)
+    if not proj.get_comment(cid).get("response_text"):
+        raise ApiError("Write or draft a response first")
+    job = JOBS.start("response-check", proj.slug, "Check response claims",
+                     lambda j: consistency.check_response(get_llm(Project.load(proj.slug)), Project.load(proj.slug),
+                                                          cid, force=body.get("force") is True))
+    return {"job": _job_dict(job)}
+
+
+def h_check_submission(handler, params, body):
+    proj = Project.load(params["slug"])
+    def work(job):
+        result = consistency.check_all_responses(get_llm(proj), proj, progress=job.say, force=body.get("force") is True)
+        proj.reload()
+        review = submission.build_submission_review(proj)
+        return {**result, "ready": review["ready"], "blockers": review["blockers"], "warnings": review["warnings"]}
+    job = JOBS.start("response-check", proj.slug, "Check submission responses", work)
+    return {"job": _job_dict(job)}
+
+
+def h_submission(handler, params, body):
+    proj = Project.load(params["slug"])
+    return submission.build_submission_review(proj)
+
+
+def h_submission_zip(handler, params, body):
+    path = submission.write_bundle(Project.load(params["slug"]))
+    return ("file", path, path.name)
+
+
 S = r"(?P<slug>[^/]+)"
 ROUTES = [
     ("GET", r"^/api/health$", h_health),
@@ -658,6 +725,14 @@ ROUTES = [
     ("POST", rf"^/api/projects/{S}/reextract-comments$", h_reextract_comments),
     ("POST", rf"^/api/projects/{S}/gap-analysis$", h_gap_analysis),
     ("POST", rf"^/api/projects/{S}/review$", h_start_review),
+    ("POST", rf"^/api/projects/{S}/snapshots$", h_snapshot),
+    ("GET", rf"^/api/projects/{S}/submission$", h_submission),
+    ("POST", rf"^/api/projects/{S}/submission/check$", h_check_submission),
+    ("GET", rf"^/api/projects/{S}/submission\.zip$", h_submission_zip),
+    ("POST", rf"^/api/projects/{S}/comments/(?P<comment_id>[^/]+)/check-response$", h_check_response),
+    ("POST", rf"^/api/projects/{S}/comments/(?P<comment_id>[^/]+)/actions$", h_save_action),
+    ("POST", rf"^/api/projects/{S}/comments/(?P<comment_id>[^/]+)/actions/(?P<action_id>[^/]+)$", h_save_action),
+    ("DELETE", rf"^/api/projects/{S}/comments/(?P<comment_id>[^/]+)/actions/(?P<action_id>[^/]+)$", h_delete_action),
     ("POST", rf"^/api/projects/{S}/comments/(?P<comment_id>[^/]+)$", h_update_comment),
     ("DELETE", rf"^/api/projects/{S}/comments/(?P<comment_id>[^/]+)$", h_delete_comment),
     ("POST", rf"^/api/projects/{S}/comments/(?P<comment_id>[^/]+)/propose-patch$", h_propose_patch),

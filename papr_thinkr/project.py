@@ -91,6 +91,8 @@ def default_state() -> dict:
         "patches": [],        # [{id, file, find, replace, rationale, comment_id, status, ...}]
         "gap_analysis_generated_at": None,
         "review": None,       # results of the last full review (see review.py)
+        "revision_snapshots": [],
+        "gap_analysis_snapshot_id": None,
     }
 
 

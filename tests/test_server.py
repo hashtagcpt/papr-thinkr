@@ -8,6 +8,8 @@ import os
 import threading
 import time
 import unittest
+import io
+import zipfile
 from urllib.parse import quote
 
 from support import FakeLLM, TempProjects
@@ -140,6 +142,52 @@ class TestServer(TempProjects):
         status, res, _ = self.req("POST", "/api/projects", {"name": "x", "manuscript_path": str(self.work / "nope.md")})
         self.assertEqual(status, 400)
         self.assertIn("not found", res["error"])
+
+    def test_revision_evidence_to_submission_bundle(self):
+        from papr_thinkr.project import Project
+        from test_workflow import AuditLLM, QUOTE, RESPONSE
+        self.fake = AuditLLM()
+        ms = self.work / "paper.md"
+        ms.write_text("# Methods\n" + QUOTE + "\n", encoding="utf-8")
+        status, created, _ = self.req("POST", "/api/projects", {"name": "Revision", "manuscript_path": str(ms)})
+        self.assertEqual(status, 200)
+        slug = created["slug"]
+        base = f"/api/projects/{slug}"
+        proj = Project.load(slug)
+        with proj.mutate():
+            proj.state["comments"] = [{"id": "c1", "origin": "reviewer", "reviewer": "Reviewer 1",
+                "comment_text": "Clarify the paired tests.", "status": "unaddressed", "patch_ids": [],
+                "triage": {"required_changes": ["Describe paired tests"], "stance": "address"}}]
+        status, current, _ = self.req("GET", base)
+        self.assertEqual(status, 200)
+        self.assertEqual(current["response_checks"]["c1"]["freshness"], "unknown")
+        aid = current["checklists"]["c1"]["actions"][0]["id"]
+        action_url = f"{base}/comments/c1/actions/{aid}"
+        status, _res, _ = self.req("POST", action_url, {"done": "yes"})
+        self.assertEqual(status, 400)
+        status, _res, _ = self.req("POST", action_url, {"done": True, "evidence": [{"path": str(ms), "quote": QUOTE}]})
+        self.assertEqual(status, 200)
+        self.req("POST", f"{base}/comments/c1", {"status": "addressed", "response_text": RESPONSE})
+        status, job, _ = self.req("POST", f"{base}/comments/c1/check-response")
+        self.assertEqual(status, 200)
+        self.assertEqual(self.wait_job(job["job"]["id"])["status"], "done")
+        status, review, _ = self.req("GET", f"{base}/submission")
+        self.assertEqual((status, review["ready"]), (200, True), review)
+        status, bundle, ctype = self.req("GET", f"{base}/submission.zip")
+        self.assertEqual(status, 200)
+        with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
+            self.assertTrue(json.loads(archive.read("submission-review.json"))["ready"])
+        self.req("POST", f"{base}/snapshots", {"label": "Round one complete"})
+        ms.write_text("# Methods\nNo paired tests were done.\n", encoding="utf-8")
+        status, current, _ = self.req("GET", base)
+        self.assertEqual(current["response_checks"]["c1"]["freshness"], "stale")
+        self.assertFalse(current["checklists"]["c1"]["complete"])
+        status, review, _ = self.req("GET", f"{base}/submission")
+        self.assertFalse(review["ready"])
+        status, _res, _ = self.req("POST", f"{base}/gap-analysis", {"comment_ids": ["absent"]})
+        self.assertEqual(status, 400)
+        status, _res, _ = self.req("GET", "/workflow.js")
+        self.assertEqual(status, 200)
 
 
 if __name__ == "__main__":

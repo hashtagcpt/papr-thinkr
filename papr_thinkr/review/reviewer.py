@@ -34,6 +34,8 @@ from ..inputs.figures import collect_figures, read_code_texts
 from ..inputs.line_refs import annotate_comments, refs_block
 from ..inputs.review_letters import USER_FIELDS, merge_preserving_user_work
 from ..llm import BaseLLM, CallContext, LLMCancelled, LLMError, current_context, use_context
+from ..revision.cache import ReviewCache
+from ..revision.provenance import capture_snapshot
 from . import checks
 from .effort import aggregate_effort, as_hours, clamp01, normalize_effort
 from .findings import SEVERITY_RANK, dedupe, merge_group, norm_text, normalize_item, verify_quote
@@ -56,7 +58,7 @@ class _Pass:
 
 class Reviewer:
     def __init__(self, llm: BaseLLM, project, progress=None, depth: str | None = None,
-                 personas: list[str] | None = None, independent: bool | None = None):
+                 personas: list[str] | None = None, independent: bool | None = None, force: bool = False):
         self.llm = llm
         self.project = project
         self.progress = progress or (lambda msg, frac=None: None)
@@ -71,6 +73,10 @@ class Reviewer:
         self.warnings: list[str] = []
         self.passes: list[_Pass] = []
         self.ctx = current_context() or CallContext()
+        self.force = force
+
+    def _json(self, messages, **kwargs):
+        return self.cache.chat_json(messages, **kwargs)
 
     # ------------------------------------------------------------------ utils
     def _say(self, msg: str, frac: float | None = None):
@@ -94,17 +100,22 @@ class Reviewer:
             use_context(ctx)
             t0 = time.monotonic()
             try:
-                p.result = self.llm.chat_json(p.messages, temperature=p.temperature,
-                                              json_schema=p.schema, think=self.think)
+                roles = (("manuscript", "reviews", "submitted", "figure", "code", "data")
+                         if p.kind != "critique" or p.persona.startswith(("Code", "Figure")) else ("manuscript",))
+                p.result = self._json(p.messages, temperature=p.temperature, roles=roles,
+                                     json_schema=p.schema, think=self.think,
+                                     cache_if=lambda r: isinstance(r, list) and (p.kind == "critique" or
+                                     {str(it.get("comment_id", "")).strip("[] ") for it in r if isinstance(it, dict)} ==
+                                     {c["id"] for c in p.batch}))
                 if p.kind == "critique" and p.result == []:
                     # Models occasionally answer [] on a run where they'd normally find
                     # plenty; one nudge recovers a whole pass's worth of findings.
-                    p.result = self.llm.chat_json(p.messages + [
+                    p.result = self._json(p.messages + [
                         {"role": "assistant", "content": "[]"},
                         {"role": "user", "content": "You returned no items. Look again carefully at everything "
                                                     "provided and list every genuine problem; return [] only if "
                                                     "there is truly nothing wrong."}],
-                        temperature=p.temperature, json_schema=p.schema, think=self.think)
+                        temperature=p.temperature, json_schema=p.schema, think=self.think, roles=roles)
             except LLMCancelled:
                 raise
             except LLMError as e:
@@ -296,7 +307,7 @@ class Reviewer:
             return items
         self._say("Consolidating duplicate findings across referees...")
         try:
-            result = self.llm.chat_json([
+            result = self._json([
                 {"role": "system", "content": "You consolidate peer-review findings and respond only in JSON."},
                 {"role": "user", "content": prompts.DEDUP_TASK.format(items=listing)},
             ], json_schema=prompts.DEDUP_SCHEMA, temperature=0.1, think=self.think)
@@ -401,9 +412,6 @@ class Reviewer:
             rid = str(r.get("comment_id") or "").strip().strip("[]")
             if rid in batch_ids:
                 by_id[rid] = r
-        if len(by_id) < len(results) and len(results) == len(batch_ids):
-            for cid, r in zip(batch_ids, results):     # ids mangled by the model: fall back to order
-                by_id.setdefault(cid, r)
         return by_id
 
     def _normalize_decode(self, r: dict) -> dict:
@@ -473,7 +481,7 @@ class Reviewer:
                             for c in comments)
         self._say("Looking for conflicts and duplicates between reviewers...")
         try:
-            r = self.llm.chat_json([
+            r = self._json([
                 {"role": "system", "content": "You analyse peer-review comments and respond only in JSON."},
                 {"role": "user", "content": prompts.CROSS_COMMENT_TASK.format(comments=listing)},
             ], json_schema=prompts.CROSS_COMMENT_SCHEMA, temperature=0.2, think=self.think)
@@ -542,7 +550,7 @@ class Reviewer:
                                     "frame the response letter" if comments else "empty string (no reviewer comments yet)"))
         self._say("Writing the overall assessment...")
         try:
-            r = self.llm.chat_json([{"role": "system", "content": self._system()},
+            r = self._json([{"role": "system", "content": self._system()},
                                     {"role": "user", "content": prompt}],
                                    json_schema=prompts.META_REVIEW_SCHEMA, temperature=0.3, think=self.think)
         except LLMCancelled:
@@ -585,6 +593,8 @@ class Reviewer:
     # ------------------------------------------------------------------- run
     def run(self) -> dict:
         t_start = time.time()
+        self.snapshot = capture_snapshot(self.project, "Full review")
+        self.cache = ReviewCache(self.project, self.llm, self.snapshot, force=self.force)
         self._load()
         comments = self._reviewer_comments()
         mode = "revision" if comments else "first-draft"
@@ -638,6 +648,8 @@ class Reviewer:
 
         review = {
             "generated_at": time.time(),
+            "snapshot_id": self.snapshot["id"],
+            "cache": self.cache.summary(),
             "mode": mode,
             "depth": self.depth,
             "backend": self.llm.display_name,
@@ -709,6 +721,7 @@ class Reviewer:
                 "location_ref": it.get("location"), "comment_text": self._ai_text(it), "severity": it["severity"],
                 "status": "unaddressed", "status_evidence": "", "suggested_action": it.get("suggestion", ""),
                 "author_notes": "", "response_text": "", "patch_ids": [], "critique": it,
+                "assessment_snapshot_id": self.snapshot["id"],
             })
         with self.project.mutate():
             comments = self.project.state["comments"]
@@ -717,6 +730,7 @@ class Reviewer:
                 if c["id"] in triage:
                     keep = (c.get("triage") or {}).get("stance") if (c.get("triage") or {}).get("stance_set_by_author") else None
                     c["triage"] = triage[c["id"]]
+                    c["assessment_snapshot_id"] = self.snapshot["id"]
                     if keep:
                         c["triage"].update(stance=keep, stance_set_by_author=True)
                 if c["id"] in (decoded or {}):
@@ -729,7 +743,7 @@ class Reviewer:
                 old = old_ai.get(c["id"])
                 if old:
                     for f in USER_FIELDS:
-                        if f != "triage" and old.get(f) not in (None, "", [], "unaddressed"):
+                        if f not in ("triage", "assessment_snapshot_id") and old.get(f) not in (None, "", [], "unaddressed"):
                             c[f] = old[f]
             new_ids = {c["id"] for c in new_ai}
             # keep old AI items the author already worked on, even if this run didn't re-find them
